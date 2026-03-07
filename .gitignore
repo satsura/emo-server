@@ -1,0 +1,11 @@
+*.pid
+*.db
+*.log
+*.mp3
+*.wav
+*.pth
+*.onnx
+__pycache__/
+.env
+emoProxy.conf
+nginx/ssl/

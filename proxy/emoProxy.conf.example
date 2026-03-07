@@ -1,0 +1,21 @@
+{
+    "pidFile": "/tmp/emoProxy.pid",
+    "livingio_api_server": "api.living.ai",
+    "livingio_api_tts_server": "eu-api.living.ai",
+    "livingio_tts_server": "eu-tts.living.ai",
+    "livingio_res_server": "res.living.ai",
+    "postFS": "/tmp/emo/",
+    "logFileName": "",
+    "enableDatabaseAndAPI": true,
+    "enableReplacements": true,
+    "sqliteLocation": "/var/data/emo_logs.db",
+    "chatGptSpeakServer": "http://localhost:9090",
+    "triggers": [
+        {"phrase": "зомби",         "action": "zombie"},
+        {"phrase": "танцуй",        "action": "dance"},
+        {"phrase": "потанцуй",      "action": "dance"},
+        {"phrase": "станцуй",       "action": "dance"},
+        {"phrase": "покажи что умеешь", "action": "show_something"},
+        {"phrase": "как ты себя чувствуешь", "action": "about_health"}
+    ]
+}

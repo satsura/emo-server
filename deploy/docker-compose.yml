@@ -1,0 +1,43 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: emo-nginx
+    network_mode: "host"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    restart: unless-stopped
+
+  emo-proxy:
+    build: /home/homer/Proxy
+    container_name: emo-proxy
+    network_mode: "host"
+    volumes:
+      - /home/homer/Proxy/emoProxy.conf:/app/emoProxy.conf
+      - emo-data:/var/data
+      - emo-logs:/var/log
+      - /tmp/probe_gtts:/tmp/probe_gtts
+      - emo-tmp:/tmp
+      - /home/homer/emo-photos:/var/data/photos
+      - /home/homer/emo-audio:/home/homer/emo-audio
+    restart: unless-stopped
+
+  ai-server:
+    build: /home/homer/emo-ai-server
+    container_name: emo-ai
+    network_mode: "host"
+    volumes:
+      - /home/homer/emo-ai-server/server.py:/app/server.py
+      - /home/homer/emo-audio:/tmp/emo-audio
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SERVE_HOST=res.living.ai
+      - PORT=9090
+      - AUDIO_URL_BASE=http://eu1-api.living.ai
+    restart: unless-stopped
+
+volumes:
+  emo-data:
+  emo-logs:
+  emo-tmp:
+  emo-audio:
