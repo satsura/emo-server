@@ -40,7 +40,21 @@ func saveRequest(requestEndPoint string, payload string, response string) {
 }
 
 func getAllRequests() ([]map[string]interface{}, error) {
-	rows, err := DB.Query("SELECT id, timestamp, endpoint, payload, response FROM requests")
+	return getRequests(100, 0, "")
+}
+
+func getRequests(limit, offset int, filter string) ([]map[string]interface{}, error) {
+	var rows *sql.Rows
+	var err error
+	if filter != "" {
+		rows, err = DB.Query(
+			"SELECT id, timestamp, endpoint, payload, response FROM requests WHERE endpoint LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+			"%"+filter+"%", limit, offset)
+	} else {
+		rows, err = DB.Query(
+			"SELECT id, timestamp, endpoint, payload, response FROM requests ORDER BY id DESC LIMIT ? OFFSET ?",
+			limit, offset)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -49,24 +63,27 @@ func getAllRequests() ([]map[string]interface{}, error) {
 	var results []map[string]interface{}
 	for rows.Next() {
 		var id int
-		var timestamp string
-		var endpoint string
-		var payload string
-		var response string
-
-		err := rows.Scan(&id, &timestamp, &endpoint, &payload, &response)
-		if err != nil {
+		var timestamp, endpoint, payload, response string
+		if err := rows.Scan(&id, &timestamp, &endpoint, &payload, &response); err != nil {
 			return nil, err
 		}
-
-		record := map[string]interface{}{
+		results = append(results, map[string]interface{}{
 			"id":        id,
 			"timestamp": timestamp,
 			"endpoint":  endpoint,
 			"payload":   payload,
 			"response":  response,
-		}
-		results = append(results, record)
+		})
 	}
 	return results, rows.Err()
+}
+
+func getRequestCount(filter string) int {
+	var count int
+	if filter != "" {
+		DB.QueryRow("SELECT COUNT(*) FROM requests WHERE endpoint LIKE ?", "%"+filter+"%").Scan(&count)
+	} else {
+		DB.QueryRow("SELECT COUNT(*) FROM requests").Scan(&count)
+	}
+	return count
 }

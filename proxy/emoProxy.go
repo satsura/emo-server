@@ -684,17 +684,138 @@ func registerAPIEndpoints() {
 	http.HandleFunc("/proxy-api/probe", handleProbe)
 	http.HandleFunc("/proxy-api/requests", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		requests, err := getAllRequests()
+
+		limit := 50
+		offset := 0
+		filter := r.URL.Query().Get("filter")
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+				limit = n
+			}
+		}
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				offset = n
+			}
+		}
+
+		requests, err := getRequests(limit, offset, filter)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(requests)
+		total := getRequestCount(filter)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"requests": requests,
+			"total":    total,
+			"limit":    limit,
+			"offset":   offset,
+		})
 	})
+	http.HandleFunc("/proxy-api/dashboard", handleDashboard)
 }
+
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, dashboardHTML)
+}
+
+const dashboardHTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMO Proxy Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+h1 { font-size: 1.4em; margin-bottom: 12px; color: #e94560; }
+.controls { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+input, select, button { padding: 6px 12px; border: 1px solid #333; border-radius: 4px; background: #16213e; color: #eee; font-size: 14px; }
+button { background: #e94560; border: none; cursor: pointer; font-weight: bold; }
+button:hover { background: #c73650; }
+button:disabled { opacity: 0.5; }
+.stats { color: #888; font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #16213e; padding: 8px; text-align: left; position: sticky; top: 0; }
+td { padding: 6px 8px; border-bottom: 1px solid #222; vertical-align: top; }
+tr:hover { background: #16213e; }
+.ts { white-space: nowrap; color: #888; font-size: 12px; }
+.ep { color: #e94560; font-weight: 500; word-break: break-all; max-width: 300px; }
+.resp { max-width: 500px; max-height: 120px; overflow: auto; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #aaa; cursor: pointer; }
+.resp.expanded { max-height: none; }
+.payload { max-width: 200px; max-height: 60px; overflow: auto; font-family: monospace; font-size: 11px; color: #666; }
+.highlight { background: #2a1a3e; }
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.auto { color: #4ecca3; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>EMO Proxy Dashboard</h1>
+<div class="controls">
+  <input id="filter" placeholder="Filter endpoint..." value="">
+  <select id="limit"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+  <button onclick="load()">Load</button>
+  <button onclick="toggleAuto()" id="autoBtn">Auto: OFF</button>
+  <span class="stats" id="stats"></span>
+</div>
+<table>
+  <thead><tr><th>#</th><th>Time</th><th>Endpoint</th><th>Payload</th><th>Response</th></tr></thead>
+  <tbody id="tbody"></tbody>
+</table>
+<div class="pager">
+  <button id="prevBtn" onclick="prev()" disabled>&larr; Prev</button>
+  <span id="pageInfo" class="stats"></span>
+  <button id="nextBtn" onclick="next()">Next &rarr;</button>
+</div>
+<script>
+let offset = 0, total = 0, autoTimer = null;
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function pretty(s) {
+  if (!s) return '';
+  try { return JSON.stringify(JSON.parse(s), null, 2); } catch(e) { return s; }
+}
+
+function load() {
+  const filter = document.getElementById('filter').value;
+  const limit = document.getElementById('limit').value;
+  fetch('/proxy-api/requests?limit=' + limit + '&offset=' + offset + '&filter=' + encodeURIComponent(filter))
+    .then(r => r.json())
+    .then(data => {
+      total = data.total;
+      const reqs = data.requests || [];
+      document.getElementById('stats').textContent = 'Total: ' + total;
+      document.getElementById('pageInfo').textContent = (offset+1) + '-' + (offset+reqs.length) + ' of ' + total;
+      document.getElementById('prevBtn').disabled = offset === 0;
+      document.getElementById('nextBtn').disabled = offset + reqs.length >= total;
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = reqs.map(r => {
+        const ep = r.endpoint || '';
+        const cls = ep.includes('detectintent') ? 'highlight' : '';
+        return '<tr class="'+cls+'"><td>'+r.id+'</td><td class="ts">'+esc(r.timestamp)+'</td><td class="ep">'+esc(ep)+'</td><td class="payload">'+esc(r.payload ? r.payload.substring(0,200) : '')+'</td><td class="resp" onclick="this.classList.toggle(\'expanded\')">'+esc(pretty(r.response))+'</td></tr>';
+      }).join('');
+    });
+}
+
+function prev() { offset = Math.max(0, offset - parseInt(document.getElementById('limit').value)); load(); }
+function next() { offset += parseInt(document.getElementById('limit').value); load(); }
+
+function toggleAuto() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; document.getElementById('autoBtn').textContent = 'Auto: OFF'; }
+  else { autoTimer = setInterval(() => { offset = 0; load(); }, 5000); document.getElementById('autoBtn').textContent = 'Auto: ON'; }
+}
+
+document.getElementById('filter').addEventListener('keydown', e => { if (e.key === 'Enter') { offset = 0; load(); } });
+load();
+</script>
+</body>
+</html>`
 
 var (
 	trainPhrasesMu sync.Mutex
