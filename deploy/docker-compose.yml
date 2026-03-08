@@ -9,11 +9,11 @@ services:
     restart: unless-stopped
 
   emo-proxy:
-    build: /home/homer/Proxy
+    build: ../proxy
     container_name: emo-proxy
     network_mode: "host"
     volumes:
-      - /home/homer/Proxy/emoProxy.conf:/app/emoProxy.conf
+      - ../proxy/emoProxy.conf:/app/emoProxy.conf
       - emo-data:/var/data
       - emo-logs:/var/log
       - /tmp/probe_gtts:/tmp/probe_gtts
@@ -23,11 +23,11 @@ services:
     restart: unless-stopped
 
   ai-server:
-    build: /home/homer/emo-ai-server
+    build: ../ai-server
     container_name: emo-ai
     network_mode: "host"
     volumes:
-      - /home/homer/emo-ai-server/server.py:/app/server.py
+      - ../ai-server/server.py:/app/server.py
       - /home/homer/emo-audio:/tmp/emo-audio
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
