@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -253,6 +256,28 @@ func backgroundEmoVoice(body []byte, secret, auth string) {
 	}()
 }
 
+func base64URLEncode(data []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
+}
+
+func generateJWT(sub, version, name string, iat, exp int64) string {
+	header := `{"typ":"JWT","alg":"HS256"}`
+	payload := fmt.Sprintf(`{"exp":%d,"sub":"%s","nbf":%d,"iat":%d,"version":"%s","name":"%s"}`,
+		exp, sub, iat, iat, version, name)
+
+	headerB64 := base64URLEncode([]byte(header))
+	payloadB64 := base64URLEncode([]byte(payload))
+	signingInput := headerB64 + "." + payloadB64
+
+	// Sign with a static key — testing if EMO even verifies the signature
+	key := []byte("emo-local-server-key")
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signingInput))
+	signature := base64URLEncode(mac.Sum(nil))
+
+	return signingInput + "." + signature
+}
+
 func url_encode(s string) string {
 	var buf bytes.Buffer
 	for _, b := range []byte(s) {
@@ -450,9 +475,28 @@ func registerEMOEndpoints() {
 
 	http.HandleFunc("/token/", func(w http.ResponseWriter, r *http.Request) {
 		logRequest(r)
+		saveLastCreds(r)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, makeApiRequest(r))
+
+		// Extract device ID from path: /token/1cc3abcc3462
+		deviceID := strings.TrimPrefix(r.URL.Path, "/token/")
+		version := r.URL.Query().Get("version")
+		versionName := r.URL.Query().Get("version_name")
+		if version == "" {
+			version = "41"
+		}
+		if versionName == "" {
+			versionName = "3.1.0"
+		}
+
+		now := time.Now().Unix()
+		expireIn := int64(9000) // ~2.5 hours
+		token := generateJWT(deviceID, version, versionName, now, now+expireIn)
+
+		resp := fmt.Sprintf(`{"access_token":"%s","expire_in":%d,"type":"Bearer"}`, token, expireIn)
+		log.Printf("local token: device=%s expire_in=%d", deviceID, expireIn)
+		fmt.Fprint(w, resp)
 	})
 
 	// detectintent — main flow via emo-ai, living.ai in background
