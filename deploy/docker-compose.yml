@@ -30,10 +30,36 @@ services:
       - ../ai-server/server.py:/app/server.py
       - /home/homer/emo-audio:/tmp/emo-audio
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SERVE_HOST=res.living.ai
       - PORT=9090
       - AUDIO_URL_BASE=http://eu1-api.living.ai
+      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/emo
+      - RHVOICE_URL=http://127.0.0.1:8088
+      - RHVOICE_VOICE=artemiy
+      - RHVOICE_RATE=65
+    restart: unless-stopped
+
+  rhvoice:
+    image: ghcr.io/aculeasis/rhvoice-rest:latest
+    container_name: emo-rhvoice
+    network_mode: "host"
+    environment:
+      - RHVOICE_REST_PORT=8088
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: emo-n8n
+    network_mode: "host"
+    environment:
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://192.168.1.64:5678
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-emo2024}
+    volumes:
+      - n8n-data:/home/node/.n8n
     restart: unless-stopped
 
 volumes:
@@ -41,3 +67,4 @@ volumes:
   emo-logs:
   emo-tmp:
   emo-audio:
+  n8n-data:

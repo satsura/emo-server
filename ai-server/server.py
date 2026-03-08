@@ -1,20 +1,17 @@
 import os
-import io
 import json
 import struct
 import uuid
 import hashlib
 import threading
 import time
+import subprocess
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from openai import OpenAI
 from vosk import Model, KaldiRecognizer, SetLogLevel
 
 SetLogLevel(-1)  # suppress vosk logs
-
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 # Load Vosk model once at startup
 print("Loading Vosk model...")
@@ -26,13 +23,12 @@ SERVE_HOST = os.environ.get("SERVE_HOST", "192.168.1.64")
 AUDIO_URL_BASE = os.environ.get("AUDIO_URL_BASE", f"http://{SERVE_HOST}:{os.environ.get('PORT', '9090')}")
 SERVE_PORT = int(os.environ.get("PORT", "9090"))
 LIVING_AI_HOST = "eu1-api.living.ai"
+N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "http://127.0.0.1:5678/webhook/emo")
+RHVOICE_URL = os.environ.get("RHVOICE_URL", "http://127.0.0.1:8080")
+RHVOICE_VOICE = os.environ.get("RHVOICE_VOICE", "artemiy")
+RHVOICE_RATE = os.environ.get("RHVOICE_RATE", "65")
 
 os.makedirs(AUDIO_DIR, exist_ok=True)
-
-SYSTEM_PROMPT = """You are EMO, a small cute desktop robot.
-Keep responses short (1-2 sentences max). Be playful and friendly.
-Always respond in the same language the user speaks.
-Never mention that you are an AI or language model."""
 
 SUPPORTED_ACTIONS = {
     # Dance
@@ -192,34 +188,7 @@ pending_say_lock = threading.Lock()
 pending_action = None
 pending_action_lock = threading.Lock()
 
-# Response cache: normalized text → {audio_id, text, ts}
-response_cache = {}
-cache_lock = threading.Lock()
-CACHE_TTL = 3600
-CACHE_MAX = 200
-
-
 # ── helpers ──────────────────────────────────────────────────────────────────
-
-def normalize(text):
-    return text.lower().strip().rstrip("?!.,")
-
-def cache_get(text):
-    key = normalize(text)
-    with cache_lock:
-        e = response_cache.get(key)
-        if e and (time.time() - e["ts"]) < CACHE_TTL:
-            if os.path.exists(os.path.join(AUDIO_DIR, f"{e['audio_id']}.mp3")):
-                return e
-    return None
-
-def cache_set(text, audio_id, resp_text):
-    key = normalize(text)
-    with cache_lock:
-        if len(response_cache) >= CACHE_MAX:
-            oldest = min(response_cache, key=lambda k: response_cache[k]["ts"])
-            del response_cache[oldest]
-        response_cache[key] = {"audio_id": audio_id, "text": resp_text, "ts": time.time()}
 
 def match_trigger(text):
     lower = text.lower()
@@ -236,11 +205,26 @@ def tts_sync(text, audio_id):
     if os.path.exists(path):
         return True
     try:
-        tts = client.audio.speech.create(model="tts-1", voice="nova", input=text)
-        tts.write_to_file(path)
+        # RHVoice → WAV
+        encoded = urllib.request.quote(text)
+        url = f"{RHVOICE_URL}/say?text={encoded}&voice={RHVOICE_VOICE}&format=wav&rate={RHVOICE_RATE}"
+        wav_path = os.path.join(AUDIO_DIR, f"{audio_id}_raw.wav")
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            with open(wav_path, "wb") as f:
+                f.write(resp.read())
+        # sox: pitch +900, tremolo 3Hz/25%
+        subprocess.run(
+            ["sox", wav_path, path, "pitch", "900", "tremolo", "3", "25"],
+            check=True, timeout=10,
+        )
+        os.remove(wav_path)
         return True
     except Exception as e:
         print(f"TTS error: {e}")
+        for p in [wav_path, path]:
+            if os.path.exists(p):
+                os.remove(p)
         return False
 
 def _pcm_be_to_le(pcm_be):
@@ -263,20 +247,28 @@ def vosk_transcribe(audio_bytes):
         print(f"Vosk error: {e}")
         return ""
 
-def gpt_respond(query_text):
+def n8n_query(text):
+    """Send text to n8n webhook, return response text or None."""
     try:
-        chat = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": query_text},
-            ],
-            max_tokens=60,
+        payload = json.dumps({"text": text, "language": "ru"}).encode()
+        req = urllib.request.Request(
+            N8N_WEBHOOK_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
-        return chat.choices[0].message.content.strip()
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        answer = data.get("text", "").strip()
+        action = data.get("action", "").strip()
+        if action and action in SUPPORTED_ACTIONS:
+            return {"type": "action", "action": action}
+        if answer:
+            return {"type": "text", "text": answer}
     except Exception as e:
-        print(f"GPT error: {e}")
-        return ""
+        print(f"n8n error: {e}")
+    return None
+
 
 # ── response builders ─────────────────────────────────────────────────────────
 
@@ -523,10 +515,10 @@ def build_out_of_scope(lang, idx):
 # ── main process handler ──────────────────────────────────────────────────────
 
 def process_audio(audio_bytes, lang, idx):
-    """Main pipeline: pending_action → pending_say → Whisper → triggers → cache → GPT+TTS"""
+    """Main pipeline: pending_action → pending_say → Vosk STT → n8n (brain)"""
     global pending_action, pending_say
 
-    # 1. Pending action (injected via API)
+    # 1. Pending action (injected via /action API)
     with pending_action_lock:
         action = pending_action
         pending_action = None
@@ -534,7 +526,7 @@ def process_audio(audio_bytes, lang, idx):
         print(f"Process: pending action → {action}")
         return build_action_response(action, "", lang, idx)
 
-    # 2. Pending say (injected via /say)
+    # 2. Pending say (injected via /say API)
     with pending_say_lock:
         say = pending_say
         pending_say = None
@@ -544,34 +536,30 @@ def process_audio(audio_bytes, lang, idx):
 
     # 3. Vosk STT
     query_text = vosk_transcribe(audio_bytes)
-
     if not query_text:
         return build_out_of_scope(lang, idx)
 
-    # 4. Trigger match
+    # 4. n8n — the brain
+    n8n_result = n8n_query(query_text)
+    if n8n_result:
+        if n8n_result["type"] == "action":
+            print(f"n8n → action: {query_text!r} → {n8n_result['action']}")
+            return build_action_response(n8n_result["action"], query_text, lang, idx)
+        resp_text = n8n_result["text"]
+        print(f"n8n → speak: {query_text!r} → {resp_text!r}")
+        audio_id = hashlib.md5(f"{query_text}{time.time()}".encode()).hexdigest()[:12]
+        if tts_sync(resp_text, audio_id):
+            return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx)
+
+    # 5. Emergency fallback (n8n unreachable) — local trigger match
     action = match_trigger(query_text)
     if action:
-        print(f"Trigger: {query_text!r} → {action}")
+        print(f"FALLBACK trigger: {query_text!r} → {action}")
         return build_action_response(action, query_text, lang, idx)
 
-    # 5. Cache hit
-    cached = cache_get(query_text)
-    if cached:
-        print(f"Cache hit: {query_text!r}")
-        return build_speak_response(query_text, cached["text"], make_audio_url(cached["audio_id"]), lang, idx)
-
-    # 6. GPT + TTS
-    resp_text = gpt_respond(query_text)
-    if not resp_text:
-        return build_out_of_scope(lang, idx)
-
-    audio_id = hashlib.md5(f"{query_text}{time.time()}".encode()).hexdigest()[:12]
-    ok = tts_sync(resp_text, audio_id)
-    if not ok:
-        return build_out_of_scope(lang, idx)
-    cache_set(query_text, audio_id, resp_text)
-    print(f"GPT done (no TTS): {query_text!r} → {resp_text!r}")
-    return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx)
+    # 6. n8n down, no trigger match → out of scope
+    print(f"No response for: {query_text!r}")
+    return build_out_of_scope(lang, idx)
 
 
 # ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -654,7 +642,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json_response(result)
 
         elif self.path == "/health":
-            self._json_response({"status": "ok", "cache": len(response_cache)})
+            self._json_response({"status": "ok"})
 
         elif self.path == "/actions":
             self._json_response({"supported": sorted(SUPPORTED_ACTIONS)})
