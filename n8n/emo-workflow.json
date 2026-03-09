@@ -8,7 +8,7 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "webhook-1",
+      "id": "a1b2c3d4-1111-4aaa-bbbb-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -18,7 +18,7 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\nconst text = (input.body?.text || input.text || '').toLowerCase().trim();\n\nconst triggers = [\n  // Dance\n  {p: 'танцуй', a: 'dance'},\n  {p: 'потанцуй', a: 'dance'},\n  {p: 'станцуй', a: 'dance'},\n  {p: 'давай потанцуем', a: 'dance'},\n  {p: 'танцуй с огнями', a: 'dance_lights'},\n  {p: 'потанцуй с огнями', a: 'dance_lights'},\n  {p: 'танцуй со светом', a: 'dance_lights'},\n  {p: 'танцуй под музыку', a: 'dance_music'},\n  // Games\n  {p: 'зомби', a: 'zombie'},\n  {p: 'стань зомби', a: 'zombie'},\n  {p: 'покажи что умеешь', a: 'show_something'},\n  {p: 'удиви меня', a: 'show_something'},\n  {p: 'рассердись', a: 'angry_emo'},\n  {p: 'покажи злость', a: 'angry_emo'},\n  {p: 'почини баги', a: 'fix_bugs'},\n  {p: 'исправь баги', a: 'fix_bugs'},\n  {p: 'надень очки', a: 'paint_shot'},\n  {p: 'пейнтбол', a: 'paint_shot'},\n  {p: 'крестики нолики', a: 'tic_tac_toe'},\n  {p: 'сыграй в крестики', a: 'tic_tac_toe'},\n  // About EMO\n  {p: 'как ты себя чувствуешь', a: 'about_health'},\n  {p: 'как ты', a: 'about_health'},\n  {p: 'сколько тебе лет', a: 'about_age'},\n  {p: 'какой у тебя возраст', a: 'about_age'},\n  {p: 'как тебя зовут', a: 'about_name'},\n  {p: 'счастливое число', a: 'lucky_number'},\n  {p: 'назови счастливое', a: 'lucky_number'},\n  // Animals\n  {p: 'кошк', a: 'animal_cat'},\n  {p: 'промяукай', a: 'animal_cat'},\n  {p: 'мяукни', a: 'animal_cat'},\n  {p: 'собак', a: 'animal_dog'},\n  {p: 'полай', a: 'animal_dog'},\n  {p: 'лис', a: 'animal_fox'},\n  {p: 'зме', a: 'animal_snake'},\n  {p: 'зашипи', a: 'animal_snake'},\n  {p: 'коров', a: 'animal_cattle'},\n  {p: 'свин', a: 'animal_pig'},\n  {p: 'хрюкни', a: 'animal_pig'},\n  {p: 'тигр', a: 'animal_tiger'},\n  {p: 'волк', a: 'animal_wolf'},\n  {p: 'завой', a: 'animal_wolf'},\n  // Sleep / music\n  {p: 'иди спать', a: 'sleep'},\n  {p: 'спи', a: 'sleep'},\n  {p: 'засыпай', a: 'sleep'},\n  {p: 'выключи музыку', a: 'bt_stop_music'},\n  {p: 'стоп музыка', a: 'bt_stop_music'},\n  {p: 'поиграй', a: 'play_around'},\n  {p: 'побалуйся', a: 'play_around'},\n  // Greeting\n  {p: 'привет', a: 'greeting'},\n  {p: 'здравствуй', a: 'greeting'},\n  {p: 'здарова', a: 'greeting'},\n  {p: 'хай', a: 'greeting'},\n  {p: 'добрый день', a: 'greeting'},\n  {p: 'доброе утро', a: 'greeting'},\n  {p: 'добрый вечер', a: 'greeting'},\n  {p: 'спокойной ночи', a: 'greeting'},\n  // Interaction\n  {p: 'тихо', a: 'be_quiet'},\n  {p: 'замолчи', a: 'be_quiet'},\n  {p: 'стоп', a: 'be_quiet'},\n  {p: 'хватит', a: 'be_quiet'},\n  {p: 'посмотри на меня', a: 'look_at_me'},\n  {p: 'смотри на меня', a: 'look_at_me'},\n  {p: 'найди меня', a: 'look_at_me'},\n  {p: 'исследуй', a: 'explore'},\n  {p: 'осмотрись', a: 'explore'},\n  {p: 'прогуляйся', a: 'explore'},\n  {p: 'осмотри', a: 'explore'},\n  {p: 'погуляй', a: 'explore'},\n  {p: 'походи', a: 'explore'},\n  // Movement\n  {p: 'вперёд', a: 'move_forward'},\n  {p: 'вперед', a: 'move_forward'},\n  {p: 'иди вперёд', a: 'move_forward'},\n  {p: 'назад', a: 'move_backward'},\n  {p: 'иди назад', a: 'move_backward'},\n  {p: 'налево', a: 'move_left'},\n  {p: 'влево', a: 'move_left'},\n  {p: 'направо', a: 'move_right'},\n  {p: 'вправо', a: 'move_right'},\n  {p: 'развернись', a: 'turn_around'},\n  {p: 'повернись', a: 'turn_around'},\n  {p: 'кругом', a: 'turn_around'},\n  // System\n  {p: 'выключись', a: 'power_off'},\n  {p: 'отключись', a: 'power_off'},\n  {p: 'который час', a: 'show_time'},\n  {p: 'сколько времени', a: 'show_time'},\n  {p: 'какое число', a: 'show_date'},\n  {p: 'какой день', a: 'show_date'},\n  {p: 'какая дата', a: 'show_date'},\n  {p: 'заряд батареи', a: 'show_battery'},\n  {p: 'сколько батареи', a: 'show_battery'},\n  {p: 'уровень заряда', a: 'show_battery'},\n  // Volume\n  {p: 'громче', a: 'volume_up'},\n  {p: 'тише', a: 'volume_down'},\n  {p: 'нормальная громкость', a: 'volume_mid'},\n  {p: 'без звука', a: 'volume_mute'},\n  // Light\n  {p: 'включи свет', a: 'light_on'},\n  {p: 'включи лампу', a: 'light_on'},\n  {p: 'выключи свет', a: 'light_off'},\n  {p: 'выключи лампу', a: 'light_off'},\n  // Update\n  {p: 'проверь обновлен', a: 'check_update'},\n  // Sing\n  {p: 'спой', a: 'sing'},\n  {p: 'песн', a: 'sing'},\n  {p: 'песенк', a: 'sing'},\n  {p: 'попой', a: 'sing'},\n  // Photo\n  {p: 'сфотографируй', a: 'take_photo'},\n  {p: 'сделай фото', a: 'take_photo'},\n  {p: 'сделай фотк', a: 'take_photo'},\n  {p: 'фотограф', a: 'take_photo'},\n  {p: 'сфоткай', a: 'take_photo'},\n];\n\n// Match triggers (longer phrases first for priority)\nconst sorted = [...triggers].sort((a, b) => b.p.length - a.p.length);\nfor (const t of sorted) {\n  if (text.includes(t.p)) {\n    return [{json: {action: t.a, matched: t.p, type: 'trigger'}}];\n  }\n}\n\n// No trigger matched — pass to next node\nreturn [{json: {text: text, type: 'question'}}];"
       },
-      "id": "trigger-match",
+      "id": "a1b2c3d4-2222-4aaa-bbbb-000000000002",
       "name": "Trigger Match",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -38,7 +38,7 @@
           ]
         }
       },
-      "id": "if-trigger",
+      "id": "a1b2c3d4-3333-4aaa-bbbb-000000000003",
       "name": "Is Trigger?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
@@ -50,7 +50,7 @@
         "responseBody": "={{ JSON.stringify({action: $json.action}) }}",
         "options": {}
       },
-      "id": "respond-action",
+      "id": "a1b2c3d4-4444-4aaa-bbbb-000000000004",
       "name": "Respond Action",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
@@ -62,7 +62,7 @@
         "responseBody": "={{ JSON.stringify({text: $json.text || 'Не знаю что ответить'}) }}",
         "options": {}
       },
-      "id": "respond-text",
+      "id": "a1b2c3d4-5555-4aaa-bbbb-000000000005",
       "name": "Respond Text",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
