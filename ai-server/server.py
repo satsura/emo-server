@@ -211,8 +211,18 @@ def tts_sync(text, audio_id):
         wav_path = os.path.join(AUDIO_DIR, f"{audio_id}_raw.wav")
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=10) as resp:
-            with open(wav_path, "wb") as f:
-                f.write(resp.read())
+            wav_data = resp.read()
+        # Fix WAV header — RHVoice streams with placeholder sizes
+        if len(wav_data) > 44 and wav_data[:4] == b'RIFF':
+            file_size = len(wav_data) - 8
+            data_offset = wav_data.find(b'data')
+            if data_offset > 0:
+                data_size = len(wav_data) - data_offset - 8
+                wav_data = (wav_data[:4] + struct.pack('<I', file_size) +
+                           wav_data[8:data_offset+4] + struct.pack('<I', data_size) +
+                           wav_data[data_offset+8:])
+        with open(wav_path, "wb") as f:
+            f.write(wav_data)
         # sox: pitch +900, tremolo 3Hz/25%
         subprocess.run(
             ["sox", wav_path, path, "pitch", "900", "tremolo", "3", "25"],
