@@ -42,9 +42,8 @@ services:
   rhvoice:
     image: ghcr.io/aculeasis/rhvoice-rest:latest
     container_name: emo-rhvoice
-    network_mode: "host"
-    environment:
-      - RHVOICE_REST_PORT=8088
+    ports:
+      - "8088:8080"
     restart: unless-stopped
 
   n8n:
