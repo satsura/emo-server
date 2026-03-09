@@ -11,7 +11,7 @@
       "id": "a1b2c3d4-1111-4aaa-bbbb-000000000001",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
+      "typeVersion": 1.1,
       "position": [200, 300]
     },
     {
