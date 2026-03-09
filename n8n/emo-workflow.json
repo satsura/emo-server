@@ -67,7 +67,7 @@
       "name": "Process Photo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 160]
+      "position": [660, 120]
     },
     {
       "parameters": {
@@ -79,37 +79,62 @@
       "name": "Respond Photo OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [880, 160]
+      "position": [880, 120]
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\nconst text = (input.body?.text || input.text || '').toLowerCase().trim();\n\nconst triggers = [\n  // Dance\n  {p: 'танцуй', a: 'dance'},\n  {p: 'потанцуй', a: 'dance'},\n  {p: 'станцуй', a: 'dance'},\n  {p: 'давай потанцуем', a: 'dance'},\n  {p: 'танцуй с огнями', a: 'dance_lights'},\n  {p: 'потанцуй с огнями', a: 'dance_lights'},\n  {p: 'танцуй со светом', a: 'dance_lights'},\n  {p: 'танцуй под музыку', a: 'dance_music'},\n  // Games\n  {p: 'зомби', a: 'zombie'},\n  {p: 'стань зомби', a: 'zombie'},\n  {p: 'покажи что умеешь', a: 'show_something'},\n  {p: 'удиви меня', a: 'show_something'},\n  {p: 'рассердись', a: 'angry_emo'},\n  {p: 'покажи злость', a: 'angry_emo'},\n  {p: 'почини баги', a: 'fix_bugs'},\n  {p: 'исправь баги', a: 'fix_bugs'},\n  {p: 'надень очки', a: 'paint_shot'},\n  {p: 'пейнтбол', a: 'paint_shot'},\n  {p: 'крестики нолики', a: 'tic_tac_toe'},\n  {p: 'сыграй в крестики', a: 'tic_tac_toe'},\n  // About EMO\n  {p: 'как ты себя чувствуешь', a: 'about_health'},\n  {p: 'как ты', a: 'about_health'},\n  {p: 'сколько тебе лет', a: 'about_age'},\n  {p: 'какой у тебя возраст', a: 'about_age'},\n  {p: 'как тебя зовут', a: 'about_name'},\n  {p: 'счастливое число', a: 'lucky_number'},\n  {p: 'назови счастливое', a: 'lucky_number'},\n  // Animals\n  {p: 'кошк', a: 'animal_cat'},\n  {p: 'промяукай', a: 'animal_cat'},\n  {p: 'мяукни', a: 'animal_cat'},\n  {p: 'собак', a: 'animal_dog'},\n  {p: 'полай', a: 'animal_dog'},\n  {p: 'лис', a: 'animal_fox'},\n  {p: 'зме', a: 'animal_snake'},\n  {p: 'зашипи', a: 'animal_snake'},\n  {p: 'коров', a: 'animal_cattle'},\n  {p: 'свин', a: 'animal_pig'},\n  {p: 'хрюкни', a: 'animal_pig'},\n  {p: 'тигр', a: 'animal_tiger'},\n  {p: 'волк', a: 'animal_wolf'},\n  {p: 'завой', a: 'animal_wolf'},\n  // Sleep / music\n  {p: 'иди спать', a: 'sleep'},\n  {p: 'спи', a: 'sleep'},\n  {p: 'засыпай', a: 'sleep'},\n  {p: 'выключи музыку', a: 'bt_stop_music'},\n  {p: 'стоп музыка', a: 'bt_stop_music'},\n  {p: 'поиграй', a: 'play_around'},\n  {p: 'побалуйся', a: 'play_around'},\n  // Greeting\n  {p: 'привет', a: 'greeting'},\n  {p: 'здравствуй', a: 'greeting'},\n  {p: 'здарова', a: 'greeting'},\n  {p: 'хай', a: 'greeting'},\n  {p: 'добрый день', a: 'greeting'},\n  {p: 'доброе утро', a: 'greeting'},\n  {p: 'добрый вечер', a: 'greeting'},\n  {p: 'спокойной ночи', a: 'greeting'},\n  // Interaction\n  {p: 'тихо', a: 'be_quiet'},\n  {p: 'замолчи', a: 'be_quiet'},\n  {p: 'стоп', a: 'be_quiet'},\n  {p: 'хватит', a: 'be_quiet'},\n  {p: 'посмотри на меня', a: 'look_at_me'},\n  {p: 'смотри на меня', a: 'look_at_me'},\n  {p: 'найди меня', a: 'look_at_me'},\n  {p: 'исследуй', a: 'explore'},\n  {p: 'осмотрись', a: 'explore'},\n  {p: 'прогуляйся', a: 'explore'},\n  {p: 'осмотри', a: 'explore'},\n  {p: 'погуляй', a: 'explore'},\n  {p: 'походи', a: 'explore'},\n  // Movement\n  {p: 'вперёд', a: 'move_forward'},\n  {p: 'вперед', a: 'move_forward'},\n  {p: 'иди вперёд', a: 'move_forward'},\n  {p: 'назад', a: 'move_backward'},\n  {p: 'иди назад', a: 'move_backward'},\n  {p: 'налево', a: 'move_left'},\n  {p: 'влево', a: 'move_left'},\n  {p: 'направо', a: 'move_right'},\n  {p: 'вправо', a: 'move_right'},\n  {p: 'развернись', a: 'turn_around'},\n  {p: 'повернись', a: 'turn_around'},\n  {p: 'кругом', a: 'turn_around'},\n  // System\n  {p: 'выключись', a: 'power_off'},\n  {p: 'отключись', a: 'power_off'},\n  {p: 'который час', a: 'show_time'},\n  {p: 'сколько времени', a: 'show_time'},\n  {p: 'какое число', a: 'show_date'},\n  {p: 'какой день', a: 'show_date'},\n  {p: 'какая дата', a: 'show_date'},\n  {p: 'заряд батареи', a: 'show_battery'},\n  {p: 'сколько батареи', a: 'show_battery'},\n  {p: 'уровень заряда', a: 'show_battery'},\n  // Volume\n  {p: 'громче', a: 'volume_up'},\n  {p: 'тише', a: 'volume_down'},\n  {p: 'нормальная громкость', a: 'volume_mid'},\n  {p: 'без звука', a: 'volume_mute'},\n  // Light\n  {p: 'включи свет', a: 'light_on'},\n  {p: 'включи лампу', a: 'light_on'},\n  {p: 'выключи свет', a: 'light_off'},\n  {p: 'выключи лампу', a: 'light_off'},\n  // Update\n  {p: 'проверь обновлен', a: 'check_update'},\n  // Sing\n  {p: 'спой', a: 'sing'},\n  {p: 'песн', a: 'sing'},\n  {p: 'песенк', a: 'sing'},\n  {p: 'попой', a: 'sing'},\n  // Photo\n  {p: 'сфотографируй', a: 'take_photo'},\n  {p: 'сделай фото', a: 'take_photo'},\n  {p: 'сделай фотк', a: 'take_photo'},\n  {p: 'фотограф', a: 'take_photo'},\n  {p: 'сфоткай', a: 'take_photo'},\n];\n\n// Poems — special handling (return text, not action)\nconst poemTriggers = ['расскажи стих', 'расскажи стишок', 'прочитай стих', 'прочти стих', 'стишок', 'стихотворение'];\nconst poems = [\n  'Уронили мишку на пол, оторвали мишке лапу. Всё равно его не брошу, потому что он хороший.',\n  'Идёт бычок качается, вздыхает на ходу. Ой, доска кончается, сейчас я упаду.',\n  'Наша Таня громко плачет, уронила в речку мячик. Тише Танечка не плачь, не утонет в речке мяч.',\n  'Зайку бросила хозяйка, под дождём остался зайка. Со скамейки слезть не мог, весь до ниточки промок.',\n  'Я люблю свою лошадку, причешу ей шёрстку гладко. Гребешком приглажу хвостик, и верхом поеду в гости.',\n  'Белая берёза под моим окном принакрылась снегом, точно серебром. На пушистых ветках снежною каймой распустились кисти белой бахромой.',\n  'Ветер по морю гуляет и кораблик подгоняет. Он бежит себе в волнах на раздутых парусах.',\n  'У лукоморья дуб зелёный, златая цепь на дубе том. И днём и ночью кот учёный всё ходит по цепи кругом.',\n  'Робот я, робот я, маленький но храбрый. Я стишки читаю вам, хоть и не кудрявый.',\n  'Жил на свете робот Эмо, он любил стихи и мемы. Целый день он танцевал, и стишки всем сочинял.',\n];\nconst poemSorted = [...poemTriggers].sort((a, b) => b.length - a.length);\nfor (const p of poemSorted) {\n  if (text.includes(p)) {\n    const poem = poems[Math.floor(Math.random() * poems.length)];\n    return [{json: {text: poem, type: 'question'}}];\n  }\n}\n\n// Match triggers (longer phrases first for priority)\nconst sorted = [...triggers].sort((a, b) => b.p.length - a.p.length);\nfor (const t of sorted) {\n  if (text.includes(t.p)) {\n    return [{json: {action: t.a, matched: t.p, type: 'trigger'}}];\n  }\n}\n\n// No trigger matched — pass to next node\nreturn [{json: {text: text, type: 'question'}}];"
+        "jsCode": "const input = $input.first().json;\nconst text = (input.body?.text || input.text || '').toLowerCase().trim();\n\n// Poem triggers — check first\nconst poemTriggers = ['расскажи стих', 'расскажи стишок', 'прочитай стих', 'прочти стих', 'стишок', 'стихотворение'];\nconst pSorted = [...poemTriggers].sort((a, b) => b.length - a.length);\nfor (const p of pSorted) {\n  if (text.includes(p)) {\n    return [{json: {type: 'poem', text: text}}];\n  }\n}\n\nconst triggers = [\n  {p: 'танцуй', a: 'dance'},\n  {p: 'потанцуй', a: 'dance'},\n  {p: 'станцуй', a: 'dance'},\n  {p: 'давай потанцуем', a: 'dance'},\n  {p: 'танцуй с огнями', a: 'dance_lights'},\n  {p: 'потанцуй с огнями', a: 'dance_lights'},\n  {p: 'танцуй со светом', a: 'dance_lights'},\n  {p: 'танцуй под музыку', a: 'dance_music'},\n  {p: 'зомби', a: 'zombie'},\n  {p: 'стань зомби', a: 'zombie'},\n  {p: 'покажи что умеешь', a: 'show_something'},\n  {p: 'удиви меня', a: 'show_something'},\n  {p: 'рассердись', a: 'angry_emo'},\n  {p: 'покажи злость', a: 'angry_emo'},\n  {p: 'почини баги', a: 'fix_bugs'},\n  {p: 'исправь баги', a: 'fix_bugs'},\n  {p: 'надень очки', a: 'paint_shot'},\n  {p: 'пейнтбол', a: 'paint_shot'},\n  {p: 'крестики нолики', a: 'tic_tac_toe'},\n  {p: 'сыграй в крестики', a: 'tic_tac_toe'},\n  {p: 'как ты себя чувствуешь', a: 'about_health'},\n  {p: 'как ты', a: 'about_health'},\n  {p: 'сколько тебе лет', a: 'about_age'},\n  {p: 'какой у тебя возраст', a: 'about_age'},\n  {p: 'как тебя зовут', a: 'about_name'},\n  {p: 'счастливое число', a: 'lucky_number'},\n  {p: 'назови счастливое', a: 'lucky_number'},\n  {p: 'кошк', a: 'animal_cat'},\n  {p: 'промяукай', a: 'animal_cat'},\n  {p: 'мяукни', a: 'animal_cat'},\n  {p: 'собак', a: 'animal_dog'},\n  {p: 'полай', a: 'animal_dog'},\n  {p: 'лис', a: 'animal_fox'},\n  {p: 'зме', a: 'animal_snake'},\n  {p: 'зашипи', a: 'animal_snake'},\n  {p: 'коров', a: 'animal_cattle'},\n  {p: 'свин', a: 'animal_pig'},\n  {p: 'хрюкни', a: 'animal_pig'},\n  {p: 'тигр', a: 'animal_tiger'},\n  {p: 'волк', a: 'animal_wolf'},\n  {p: 'завой', a: 'animal_wolf'},\n  {p: 'иди спать', a: 'sleep'},\n  {p: 'спи', a: 'sleep'},\n  {p: 'засыпай', a: 'sleep'},\n  {p: 'выключи музыку', a: 'bt_stop_music'},\n  {p: 'стоп музыка', a: 'bt_stop_music'},\n  {p: 'поиграй', a: 'play_around'},\n  {p: 'побалуйся', a: 'play_around'},\n  {p: 'привет', a: 'greeting'},\n  {p: 'здравствуй', a: 'greeting'},\n  {p: 'здарова', a: 'greeting'},\n  {p: 'хай', a: 'greeting'},\n  {p: 'добрый день', a: 'greeting'},\n  {p: 'доброе утро', a: 'greeting'},\n  {p: 'добрый вечер', a: 'greeting'},\n  {p: 'спокойной ночи', a: 'greeting'},\n  {p: 'тихо', a: 'be_quiet'},\n  {p: 'замолчи', a: 'be_quiet'},\n  {p: 'стоп', a: 'be_quiet'},\n  {p: 'хватит', a: 'be_quiet'},\n  {p: 'посмотри на меня', a: 'look_at_me'},\n  {p: 'смотри на меня', a: 'look_at_me'},\n  {p: 'найди меня', a: 'look_at_me'},\n  {p: 'исследуй', a: 'explore'},\n  {p: 'осмотрись', a: 'explore'},\n  {p: 'прогуляйся', a: 'explore'},\n  {p: 'осмотри', a: 'explore'},\n  {p: 'погуляй', a: 'explore'},\n  {p: 'походи', a: 'explore'},\n  {p: 'вперёд', a: 'move_forward'},\n  {p: 'вперед', a: 'move_forward'},\n  {p: 'иди вперёд', a: 'move_forward'},\n  {p: 'назад', a: 'move_backward'},\n  {p: 'иди назад', a: 'move_backward'},\n  {p: 'налево', a: 'move_left'},\n  {p: 'влево', a: 'move_left'},\n  {p: 'направо', a: 'move_right'},\n  {p: 'вправо', a: 'move_right'},\n  {p: 'развернись', a: 'turn_around'},\n  {p: 'повернись', a: 'turn_around'},\n  {p: 'кругом', a: 'turn_around'},\n  {p: 'выключись', a: 'power_off'},\n  {p: 'отключись', a: 'power_off'},\n  {p: 'который час', a: 'show_time'},\n  {p: 'сколько времени', a: 'show_time'},\n  {p: 'какое число', a: 'show_date'},\n  {p: 'какой день', a: 'show_date'},\n  {p: 'какая дата', a: 'show_date'},\n  {p: 'заряд батареи', a: 'show_battery'},\n  {p: 'сколько батареи', a: 'show_battery'},\n  {p: 'уровень заряда', a: 'show_battery'},\n  {p: 'громче', a: 'volume_up'},\n  {p: 'тише', a: 'volume_down'},\n  {p: 'нормальная громкость', a: 'volume_mid'},\n  {p: 'без звука', a: 'volume_mute'},\n  {p: 'включи свет', a: 'light_on'},\n  {p: 'включи лампу', a: 'light_on'},\n  {p: 'выключи свет', a: 'light_off'},\n  {p: 'выключи лампу', a: 'light_off'},\n  {p: 'проверь обновлен', a: 'check_update'},\n  {p: 'спой', a: 'sing'},\n  {p: 'песн', a: 'sing'},\n  {p: 'песенк', a: 'sing'},\n  {p: 'попой', a: 'sing'},\n  {p: 'сфотографируй', a: 'take_photo'},\n  {p: 'сделай фото', a: 'take_photo'},\n  {p: 'сделай фотк', a: 'take_photo'},\n  {p: 'фотограф', a: 'take_photo'},\n  {p: 'сфоткай', a: 'take_photo'},\n];\n\nconst sorted = [...triggers].sort((a, b) => b.p.length - a.p.length);\nfor (const t of sorted) {\n  if (text.includes(t.p)) {\n    return [{json: {action: t.a, matched: t.p, type: 'trigger'}}];\n  }\n}\n\nreturn [{json: {text: text, type: 'question'}}];"
       },
       "id": "a1b2c3d4-2222-4aaa-bbbb-000000000002",
       "name": "Trigger Match",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 340]
+      "position": [660, 300]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": false },
-          "combinator": "and",
-          "conditions": [
+        "rules": {
+          "values": [
             {
-              "leftValue": "={{ $json.type }}",
-              "rightValue": "trigger",
-              "operator": { "type": "string", "operation": "equals" }
+              "conditions": {
+                "options": { "caseSensitive": false },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "trigger",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputLabel": "action"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "poem",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputLabel": "poem"
             }
           ]
-        }
+        },
+        "fallbackOutput": "extra",
+        "options": {}
       },
-      "id": "a1b2c3d4-3333-4aaa-bbbb-000000000003",
-      "name": "Is Trigger?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [880, 340]
+      "id": "a1b2c3d4-3333-4aaa-bbbb-000000000020",
+      "name": "Result Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [880, 300]
     },
     {
       "parameters": {
@@ -121,7 +146,29 @@
       "name": "Respond Action",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1100, 260]
+      "position": [1100, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const poems = [\n  'Уронили мишку на пол, оторвали мишке лапу. Всё равно его не брошу, потому что он хороший.',\n  'Идёт бычок качается, вздыхает на ходу. Ой, доска кончается, сейчас я упаду.',\n  'Наша Таня громко плачет, уронила в речку мячик. Тише Танечка не плачь, не утонет в речке мяч.',\n  'Зайку бросила хозяйка, под дождём остался зайка. Со скамейки слезть не мог, весь до ниточки промок.',\n  'Я люблю свою лошадку, причешу ей шёрстку гладко. Гребешком приглажу хвостик, и верхом поеду в гости.',\n  'Белая берёза под моим окном принакрылась снегом, точно серебром. На пушистых ветках снежною каймой распустились кисти белой бахромой.',\n  'Ветер по морю гуляет и кораблик подгоняет. Он бежит себе в волнах на раздутых парусах.',\n  'У лукоморья дуб зелёный, златая цепь на дубе том. И днём и ночью кот учёный всё ходит по цепи кругом.',\n  'Робот я, робот я, маленький но храбрый. Я стишки читаю вам, хоть и не кудрявый.',\n  'Жил на свете робот Эмо, он любил стихи и мемы. Целый день он танцевал, и стишки всем сочинял.',\n];\n\nconst poem = poems[Math.floor(Math.random() * poems.length)];\n\nreturn [{json: {\n  text: poem,\n  voice: {\n    rate: 50,\n    pitch: 600,\n    tremolo_depth: 15\n  }\n}}];"
+      },
+      "id": "a1b2c3d4-0000-4aaa-bbbb-000000000030",
+      "name": "Recite Poem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 340]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({text: $json.text, voice: $json.voice}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4aaa-bbbb-000000000031",
+      "name": "Respond Poem",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1320, 340]
     },
     {
       "parameters": {
@@ -133,7 +180,7 @@
       "name": "Respond Text",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1100, 420]
+      "position": [1100, 460]
     },
     {
       "parameters": {
@@ -168,13 +215,19 @@
     },
     "Trigger Match": {
       "main": [
-        [{ "node": "Is Trigger?", "type": "main", "index": 0 }]
+        [{ "node": "Result Router", "type": "main", "index": 0 }]
       ]
     },
-    "Is Trigger?": {
+    "Result Router": {
       "main": [
         [{ "node": "Respond Action", "type": "main", "index": 0 }],
+        [{ "node": "Recite Poem", "type": "main", "index": 0 }],
         [{ "node": "Respond Text", "type": "main", "index": 0 }]
+      ]
+    },
+    "Recite Poem": {
+      "main": [
+        [{ "node": "Respond Poem", "type": "main", "index": 0 }]
       ]
     }
   },

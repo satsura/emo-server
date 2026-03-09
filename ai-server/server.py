@@ -200,14 +200,20 @@ def match_trigger(text):
 def make_audio_url(audio_id):
     return f"{AUDIO_URL_BASE}/tts/dl/{audio_id}"
 
-def tts_sync(text, audio_id):
+def tts_sync(text, audio_id, voice_params=None):
     path = os.path.join(AUDIO_DIR, f"{audio_id}.mp3")
     if os.path.exists(path):
         return True
+    vp = voice_params or {}
+    rate = str(vp.get("rate", RHVOICE_RATE))
+    pitch = str(vp.get("pitch", 900))
+    tremolo_freq = str(vp.get("tremolo_freq", 3))
+    tremolo_depth = str(vp.get("tremolo_depth", 25))
+    tempo = vp.get("tempo")  # None = no tempo change
     try:
         # RHVoice → WAV
         encoded = urllib.request.quote(text)
-        url = f"{RHVOICE_URL}/say?text={encoded}&voice={RHVOICE_VOICE}&format=wav&rate={RHVOICE_RATE}"
+        url = f"{RHVOICE_URL}/say?text={encoded}&voice={RHVOICE_VOICE}&format=wav&rate={rate}"
         wav_path = os.path.join(AUDIO_DIR, f"{audio_id}_raw.wav")
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -223,11 +229,11 @@ def tts_sync(text, audio_id):
                            wav_data[data_offset+8:])
         with open(wav_path, "wb") as f:
             f.write(wav_data)
-        # sox: pitch +900, tremolo 3Hz/25%
-        subprocess.run(
-            ["sox", wav_path, path, "pitch", "900", "tremolo", "3", "25"],
-            check=True, timeout=10,
-        )
+        # sox effects
+        sox_cmd = ["sox", wav_path, path, "pitch", pitch, "tremolo", tremolo_freq, tremolo_depth]
+        if tempo:
+            sox_cmd.extend(["tempo", str(tempo)])
+        subprocess.run(sox_cmd, check=True, timeout=10)
         os.remove(wav_path)
         return True
     except Exception as e:
@@ -271,10 +277,11 @@ def n8n_query(text):
             data = json.loads(resp.read())
         answer = data.get("text", "").strip()
         action = data.get("action", "").strip()
+        voice = data.get("voice")  # optional: {rate, pitch, tempo, ...}
         if action and action in SUPPORTED_ACTIONS:
             return {"type": "action", "action": action}
         if answer:
-            return {"type": "text", "text": answer}
+            return {"type": "text", "text": answer, "voice": voice}
     except Exception as e:
         print(f"n8n error: {e}")
     return None
@@ -556,9 +563,10 @@ def process_audio(audio_bytes, lang, idx):
             print(f"n8n → action: {query_text!r} → {n8n_result['action']}")
             return build_action_response(n8n_result["action"], query_text, lang, idx)
         resp_text = n8n_result["text"]
-        print(f"n8n → speak: {query_text!r} → {resp_text!r}")
+        voice_params = n8n_result.get("voice")
+        print(f"n8n → speak: {query_text!r} → {resp_text!r}" + (f" voice={voice_params}" if voice_params else ""))
         audio_id = hashlib.md5(f"{query_text}{time.time()}".encode()).hexdigest()[:12]
-        if tts_sync(resp_text, audio_id):
+        if tts_sync(resp_text, audio_id, voice_params):
             return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx)
 
     # 5. Emergency fallback (n8n unreachable) — local trigger match
