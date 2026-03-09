@@ -594,6 +594,23 @@ func registerEMOEndpoints() {
 				log.Printf("photo save error: %v", err)
 			} else {
 				log.Printf("photo saved: %s (%d bytes)", photoPath, len(imgBody))
+				// Notify n8n about new photo (async)
+				go func(path string, size int) {
+					payload := fmt.Sprintf(`{"photo_path":"%s","size":%d,"timestamp":"%s"}`, path, size, ts)
+					req, err := http.NewRequest("POST", "http://127.0.0.1:5678/webhook/emo-photo", bytes.NewBufferString(payload))
+					if err != nil {
+						return
+					}
+					req.Header.Set("Content-Type", "application/json")
+					client := &http.Client{Timeout: 5 * time.Second}
+					resp, err := client.Do(req)
+					if err != nil {
+						log.Printf("n8n photo notify error: %v", err)
+						return
+					}
+					resp.Body.Close()
+					log.Printf("n8n photo notify: %d", resp.StatusCode)
+				}(photoPath, len(imgBody))
 			}
 
 			// Forward to living.ai
