@@ -10,6 +10,7 @@
     "enableReplacements": true,
     "sqliteLocation": "/var/data/emo_logs.db",
     "chatGptSpeakServer": "http://localhost:9090",
+    "n8nWebhookURL": "http://127.0.0.1:5678/webhook/lu37Ugyv3aRGGDpM/webhook/emo",
     "triggers": [
         {"phrase": "зомби",         "action": "zombie"},
         {"phrase": "танцуй",        "action": "dance"},

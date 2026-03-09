@@ -43,6 +43,7 @@ type Configuration struct {
 	EnableReplacements      bool      `json:"enableReplacements"`
 	SqliteLocation          string    `json:"sqliteLocation"`
 	ChatGptSpeakServer      string    `json:"chatGptSpeakServer"`
+	N8nWebhookURL           string    `json:"n8nWebhookURL"`
 	Triggers                []Trigger `json:"triggers"`
 }
 
@@ -596,8 +597,11 @@ func registerEMOEndpoints() {
 				log.Printf("photo saved: %s (%d bytes)", photoPath, len(imgBody))
 				// Notify n8n about new photo (async)
 				go func(path string, size int) {
-					payload := fmt.Sprintf(`{"photo_path":"%s","size":%d,"timestamp":"%s"}`, path, size, ts)
-					req, err := http.NewRequest("POST", "http://127.0.0.1:5678/webhook/emo-photo", bytes.NewBufferString(payload))
+					if conf.N8nWebhookURL == "" {
+						return
+					}
+					payload := fmt.Sprintf(`{"event":"photo","photo_path":"%s","size":%d,"timestamp":"%s"}`, path, size, ts)
+					req, err := http.NewRequest("POST", conf.N8nWebhookURL, bytes.NewBufferString(payload))
 					if err != nil {
 						return
 					}

@@ -260,7 +260,7 @@ def vosk_transcribe(audio_bytes):
 def n8n_query(text):
     """Send text to n8n webhook, return response text or None."""
     try:
-        payload = json.dumps({"text": text, "language": "ru"}).encode()
+        payload = json.dumps({"event": "voice", "text": text, "language": "ru"}).encode()
         req = urllib.request.Request(
             N8N_WEBHOOK_URL,
             data=payload,
