@@ -50,7 +50,7 @@
             }
           ]
         },
-        "fallbackOutput": "extra",
+        "fallbackOutput": "none",
         "options": {}
       },
       "id": "a1b2c3d4-0000-4aaa-bbbb-000000000010",
@@ -124,10 +124,25 @@
               },
               "renameOutput": true,
               "outputLabel": "poem"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "question",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputLabel": "text"
             }
           ]
         },
-        "fallbackOutput": "extra",
+        "fallbackOutput": "none",
         "options": {}
       },
       "id": "a1b2c3d4-3333-4aaa-bbbb-000000000020",
@@ -204,8 +219,7 @@
     "Event Router": {
       "main": [
         [{ "node": "Process Photo", "type": "main", "index": 0 }],
-        [{ "node": "Trigger Match", "type": "main", "index": 0 }],
-        [{ "node": "Respond Unknown", "type": "main", "index": 0 }]
+        [{ "node": "Trigger Match", "type": "main", "index": 0 }]
       ]
     },
     "Process Photo": {
