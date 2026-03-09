@@ -33,7 +33,7 @@ services:
       - SERVE_HOST=res.living.ai
       - PORT=9090
       - AUDIO_URL_BASE=http://eu1-api.living.ai
-      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/emo
+      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/lu37Ugyv3aRGGDpM/webhook/emo
       - RHVOICE_URL=http://127.0.0.1:8088
       - RHVOICE_VOICE=artemiy
       - RHVOICE_RATE=65
