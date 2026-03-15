@@ -278,10 +278,11 @@ def n8n_query(text):
         answer = data.get("text", "").strip()
         action = data.get("action", "").strip()
         voice = data.get("voice")  # optional: {rate, pitch, tempo, ...}
+        animation = data.get("animation")  # optional: {pre, post}
         if action and action in SUPPORTED_ACTIONS:
             return {"type": "action", "action": action}
         if answer:
-            return {"type": "text", "text": answer, "voice": voice}
+            return {"type": "text", "text": answer, "voice": voice, "animation": animation}
     except Exception as e:
         print(f"n8n error: {e}")
     return None
@@ -289,7 +290,8 @@ def n8n_query(text):
 
 # ── response builders ─────────────────────────────────────────────────────────
 
-def build_speak_response(query_text, resp_text, audio_url, lang, idx):
+def build_speak_response(query_text, resp_text, audio_url, lang, idx, animation=None):
+    anim = animation or {}
     return {
         "queryId": str(uuid.uuid4()),
         "queryResult": {
@@ -299,8 +301,8 @@ def build_speak_response(query_text, resp_text, audio_url, lang, idx):
             "behavior_paras": {
                 "txt": resp_text,
                 "url": audio_url,
-                "pre_animation": "",
-                "post_animation": "",
+                "pre_animation": anim.get("pre", ""),
+                "post_animation": anim.get("post", ""),
                 "post_behavior": "",
                 "sentiment": "",
                 "listen": 0,
@@ -564,10 +566,11 @@ def process_audio(audio_bytes, lang, idx):
             return build_action_response(n8n_result["action"], query_text, lang, idx)
         resp_text = n8n_result["text"]
         voice_params = n8n_result.get("voice")
-        print(f"n8n → speak: {query_text!r} → {resp_text!r}" + (f" voice={voice_params}" if voice_params else ""))
+        animation = n8n_result.get("animation")
+        print(f"n8n → speak: {query_text!r} → {resp_text!r}" + (f" voice={voice_params}" if voice_params else "") + (f" anim={animation}" if animation else ""))
         audio_id = hashlib.md5(f"{query_text}{time.time()}".encode()).hexdigest()[:12]
         if tts_sync(resp_text, audio_id, voice_params):
-            return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx)
+            return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx, animation)
 
     # 5. Emergency fallback (n8n unreachable) — local trigger match
     action = match_trigger(query_text)
