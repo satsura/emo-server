@@ -477,26 +477,12 @@ func registerEMOEndpoints() {
 	http.HandleFunc("/token/", func(w http.ResponseWriter, r *http.Request) {
 		logRequest(r)
 		saveLastCreds(r)
+
+		// Proxy token request to real living.ai
+		resp := makeApiRequest(r)
+		log.Printf("living.ai token response: %s", resp)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-
-		// Extract device ID from path: /token/1cc3abcc3462
-		deviceID := strings.TrimPrefix(r.URL.Path, "/token/")
-		version := r.URL.Query().Get("version")
-		versionName := r.URL.Query().Get("version_name")
-		if version == "" {
-			version = "41"
-		}
-		if versionName == "" {
-			versionName = "3.1.0"
-		}
-
-		now := time.Now().Unix()
-		expireIn := int64(9000) // ~2.5 hours
-		token := generateJWT(deviceID, version, versionName, now, now+expireIn)
-
-		resp := fmt.Sprintf(`{"access_token":"%s","expire_in":%d,"type":"Bearer"}`, token, expireIn)
-		log.Printf("local token: device=%s expire_in=%d", deviceID, expireIn)
 		fmt.Fprint(w, resp)
 	})
 
