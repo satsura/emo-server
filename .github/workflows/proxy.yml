@@ -1,0 +1,25 @@
+name: Proxy
+on:
+  push:
+    branches: [main]
+    paths: ['proxy/**']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: proxy
+          push: true
+          tags: |
+            ghcr.io/satsura/emo-proxy:latest
+            ghcr.io/satsura/emo-proxy:${{ github.sha }}

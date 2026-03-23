@@ -1,0 +1,25 @@
+name: AI Server
+on:
+  push:
+    branches: [main]
+    paths: ['ai-server/**']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: ai-server
+          push: true
+          tags: |
+            ghcr.io/satsura/emo-ai:latest
+            ghcr.io/satsura/emo-ai:${{ github.sha }}
