@@ -2,3 +2,4 @@ faster-whisper
 torch
 torchaudio
 numpy
+# CI trigger
