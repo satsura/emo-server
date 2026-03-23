@@ -9,14 +9,22 @@ import subprocess
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from vosk import Model, KaldiRecognizer, SetLogLevel
+import torch
+import numpy as np
+from faster_whisper import WhisperModel
 
-SetLogLevel(-1)  # suppress vosk logs
+# Load silero-vad
+print("Loading silero-vad...")
+vad_model, vad_utils = torch.hub.load(repo_or_dir="snakers4/silero-vad", model="silero_vad", trust_repo=True)
+(get_speech_timestamps, _, read_audio, _, _) = vad_utils
+VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.4"))
 
-# Load Vosk model once at startup
-print("Loading Vosk model...")
-_vosk_model = Model("/app/model")
-print("Vosk model loaded")
+# Load faster-whisper
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
+WHISPER_LANG = os.environ.get("WHISPER_LANG", "ru")
+print(f"Loading faster-whisper {WHISPER_MODEL}...")
+# (vosk removed)
+# (vosk removed)
 
 AUDIO_DIR = "/tmp/emo-audio"
 SERVE_HOST = os.environ.get("SERVE_HOST", "192.168.1.64")
@@ -24,6 +32,7 @@ AUDIO_URL_BASE = os.environ.get("AUDIO_URL_BASE", f"http://{SERVE_HOST}:{os.envi
 SERVE_PORT = int(os.environ.get("PORT", "9090"))
 LIVING_AI_HOST = "eu1-api.living.ai"
 N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "http://127.0.0.1:5678/webhook/emo")
+BLE_URL = os.environ.get("BLE_URL", "http://127.0.0.1:8091")
 RHVOICE_URL = os.environ.get("RHVOICE_URL", "http://127.0.0.1:8080")
 RHVOICE_VOICE = os.environ.get("RHVOICE_VOICE", "artemiy")
 RHVOICE_RATE = os.environ.get("RHVOICE_RATE", "65")
@@ -53,6 +62,11 @@ SUPPORTED_ACTIONS = {
     "check_update",
     "sing",
     "take_photo",
+    # New from living.ai analysis
+    "laser_eye", "go_home", "say_again", "roll_a_dice",
+    "come_here", "about_comfort", "play_by_yourself",
+    "featured_game_magic", "featured_game_camping",
+    "listen_to_voice",
 }
 
 # Triggers: loaded from env or defaults
@@ -244,24 +258,59 @@ def tts_sync(text, audio_id, voice_params=None):
         return False
 
 def _pcm_be_to_le(pcm_be):
-    # EMO sends 16-bit big-endian signed PCM; convert to little-endian for Vosk
+    # EMO sends 16-bit big-endian signed PCM; convert to little-endian
     n = len(pcm_be) // 2 * 2
     samples = struct.unpack(">" + "h" * (n // 2), pcm_be[:n])
     return struct.pack("<" + "h" * len(samples), *samples)
 
-def vosk_transcribe(audio_bytes):
-    # EMO sends raw 16-bit big-endian signed PCM at 16000 Hz (no WAV header)
+def vad_check(pcm_le_bytes):
+    """Check if audio contains speech using silero-vad. Returns True if speech detected."""
     try:
-        pcm_le = _pcm_be_to_le(audio_bytes)
-        rec = KaldiRecognizer(_vosk_model, 16000)
-        rec.AcceptWaveform(pcm_le)
-        result = json.loads(rec.FinalResult())
-        text = result.get("text", "").strip()
-        print(f"Vosk: {text!r}")
+        audio = np.frombuffer(pcm_le_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        audio_tensor = torch.from_numpy(audio)
+        timestamps = get_speech_timestamps(audio_tensor, vad_model,
+                                            sampling_rate=16000,
+                                            threshold=VAD_THRESHOLD,
+                                            min_speech_duration_ms=250)
+        has_speech = len(timestamps) > 0
+        if has_speech:
+            total_ms = sum(t["end"] - t["start"] for t in timestamps) / 16  # samples to ms
+            print(f"VAD: speech detected ({len(timestamps)} segments, {total_ms:.0f}ms)")
+        return has_speech
+    except Exception as e:
+        print(f"VAD error: {e}")
+        return True  # on error, proceed with STT
+
+def whisper_transcribe(pcm_le_bytes):
+    """Transcribe audio using faster-whisper."""
+    try:
+        audio = np.frombuffer(pcm_le_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        segments, info = _whisper.transcribe(audio, language=WHISPER_LANG,
+                                              beam_size=3,
+                                              vad_filter=True,
+                                              vad_parameters=dict(
+                                                  min_speech_duration_ms=250,
+                                                  max_speech_duration_s=30,
+                                                  speech_pad_ms=200,
+                                              ))
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        print(f"Whisper: {text!r} (lang={info.language} prob={info.language_probability:.2f})")
+        # Filter low-confidence or non-target language
+        if info.language_probability < 0.5:
+            print(f"  Low language confidence, ignoring")
+            return ""
         return text
     except Exception as e:
-        print(f"Vosk error: {e}")
+        print(f"Whisper error: {e}")
         return ""
+
+def transcribe(audio_bytes):
+    """Pipeline: PCM BE→LE → VAD → Whisper."""
+    pcm_le = _pcm_be_to_le(audio_bytes)
+    if not vad_check(pcm_le):
+        print("VAD: no speech")
+        return ""
+    return whisper_transcribe(pcm_le)
 
 def n8n_query(text):
     """Send text to n8n webhook, return response text or None."""
@@ -279,6 +328,24 @@ def n8n_query(text):
         action = data.get("action", "").strip()
         voice = data.get("voice")  # optional: {rate, pitch, tempo, ...}
         animation = data.get("animation")  # optional: {pre, post}
+        # BLE direct command from n8n
+        ble = data.get("ble")
+        if ble and BLE_URL:
+            try:
+                ble_endpoint = ble.get("endpoint", "")
+                ble_body = json.dumps(ble.get("body", {})).encode()
+                ble_method = ble.get("method", "POST")
+                ble_req = urllib.request.Request(
+                    BLE_URL + ble_endpoint,
+                    data=ble_body if ble_method == "POST" else None,
+                    headers={"Content-Type": "application/json"},
+                    method=ble_method,
+                )
+                with urllib.request.urlopen(ble_req, timeout=10) as ble_resp:
+                    ble_result = json.loads(ble_resp.read())
+                print(f"n8n → BLE {ble_endpoint}: {ble_result}")
+            except Exception as e:
+                print(f"BLE error: {e}")
         if action and action in SUPPORTED_ACTIONS:
             return {"type": "action", "action": action}
         if answer:
@@ -516,6 +583,56 @@ def build_action_response(action, query_text, lang, idx):
         qr["intent"]["name"] = "check_update"
         qr["behavior_paras"] = {"utility_type": "check_update"}
 
+    elif action == "laser_eye":
+        qr["rec_behavior"] = "play_animation"
+        qr["intent"]["name"] = "laser_eye"
+        qr["behavior_paras"] = {"animation_name": "laser_eye"}
+
+    elif action == "go_home":
+        qr["rec_behavior"] = "go_home"
+        qr["intent"]["name"] = "go_home"
+        qr["behavior_paras"] = {}
+
+    elif action == "say_again":
+        qr["rec_behavior"] = "speak"
+        qr["intent"]["name"] = "say_again"
+        qr["behavior_paras"] = {"type": "say_again"}
+
+    elif action == "roll_a_dice":
+        qr["rec_behavior"] = "featured_game"
+        qr["intent"]["name"] = "featured_game_roll_a_dice"
+        qr["behavior_paras"] = {"game_name": "roll_a_dice"}
+
+    elif action == "come_here":
+        qr["rec_behavior"] = "move_to_target"
+        qr["intent"]["name"] = "come_here"
+        qr["behavior_paras"] = {"should_go": 1}
+
+    elif action == "about_comfort":
+        qr["rec_behavior"] = "about_emo"
+        qr["intent"]["name"] = "about_comfort"
+        qr["behavior_paras"] = {"type": "about_comfort"}
+
+    elif action == "featured_game_magic":
+        qr["rec_behavior"] = "featured_game"
+        qr["intent"]["name"] = "featured_game_magic"
+        qr["behavior_paras"] = {"game_name": "magic"}
+
+    elif action == "featured_game_camping":
+        qr["rec_behavior"] = "featured_game"
+        qr["intent"]["name"] = "featured_game_camping"
+        qr["behavior_paras"] = {"game_name": "camping"}
+
+    elif action == "listen_to_voice":
+        qr["rec_behavior"] = "listen"
+        qr["intent"]["name"] = "listen_to_voice"
+        qr["behavior_paras"] = {}
+
+    elif action == "play_by_yourself":
+        qr["rec_behavior"] = "play_around"
+        qr["intent"]["name"] = "play_by_yourself"
+        qr["behavior_paras"] = {"play_type": "normal"}
+
     return base
 
 def build_out_of_scope(lang, idx):
@@ -534,7 +651,7 @@ def build_out_of_scope(lang, idx):
 # ── main process handler ──────────────────────────────────────────────────────
 
 def process_audio(audio_bytes, lang, idx):
-    """Main pipeline: pending_action → pending_say → Vosk STT → n8n (brain)"""
+    """Main pipeline: pending_action → pending_say → VAD+Whisper STT → n8n (brain)"""
     global pending_action, pending_say
 
     # 1. Pending action (injected via /action API)
@@ -553,8 +670,8 @@ def process_audio(audio_bytes, lang, idx):
         print(f"Process: pending say → {say['text']}")
         return build_speak_response("", say["text"], say["url"], lang, idx)
 
-    # 3. Vosk STT
-    query_text = vosk_transcribe(audio_bytes)
+    # 3. VAD + Whisper STT
+    query_text = transcribe(audio_bytes)
     if not query_text:
         return build_out_of_scope(lang, idx)
 

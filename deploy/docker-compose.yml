@@ -18,8 +18,8 @@ services:
       - emo-logs:/var/log
       - /tmp/probe_gtts:/tmp/probe_gtts
       - emo-tmp:/tmp
-      - /home/homer/emo-photos:/var/data/photos
-      - /home/homer/emo-audio:/home/homer/emo-audio
+      - /home/valera/emo-photos:/var/data/photos
+      - /home/valera/emo-audio:/home/valera/emo-audio
     restart: unless-stopped
 
   ai-server:
@@ -28,15 +28,16 @@ services:
     network_mode: "host"
     volumes:
       - ../ai-server/server.py:/app/server.py
-      - /home/homer/emo-audio:/tmp/emo-audio
+      - /home/valera/emo-audio:/tmp/emo-audio
     environment:
       - SERVE_HOST=res.living.ai
       - PORT=9090
       - AUDIO_URL_BASE=http://eu1-api.living.ai
-      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/lu37Ugyv3aRGGDpM/webhook/emo
+      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/5AV2WwzthB3S3BLj/webhook/emo
       - RHVOICE_URL=http://127.0.0.1:8088
       - RHVOICE_VOICE=artemiy
       - RHVOICE_RATE=65
+      - BLE_URL=http://127.0.0.1:8091
     restart: unless-stopped
 
   rhvoice:
@@ -53,13 +54,45 @@ services:
     environment:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://192.168.1.64:5678
+      - WEBHOOK_URL=http://192.168.1.109:5678
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-emo2024}
       - N8N_SECURE_COOKIE=false
     volumes:
       - n8n-data:/home/node/.n8n
+      - /home/valera/emo-photos:/photos
+    restart: unless-stopped
+
+  coral-vision:
+    image: ghcr.io/satsura/coral-vision:latest
+    container_name: coral-vision
+    privileged: true
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:ro
+      - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1:ro
+      - /home/valera/emo-server/coral-models:/models:ro
+    ports:
+      - "8090:8090"
+    environment:
+      - PORT=8090
+      - THRESHOLD=0.4
+    restart: unless-stopped
+
+  emo-ble:
+    image: ghcr.io/satsura/emo-ble:latest
+    container_name: emo-ble
+    privileged: true
+    network_mode: "host"
+    volumes:
+      - /var/run/dbus:/var/run/dbus
+    environment:
+      - PORT=8091
+      - PHOTO_PORT=8099
+      - EMO_ADDR=1C:C3:AB:CC:34:62
+      - BLE_ADAPTER=hci1
+      - SERVER_IP=192.168.1.109
     restart: unless-stopped
 
 volumes:

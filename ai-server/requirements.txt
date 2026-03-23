@@ -1,1 +1,4 @@
-vosk
+faster-whisper
+torch
+torchaudio
+numpy

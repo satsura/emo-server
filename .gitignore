@@ -9,3 +9,7 @@ __pycache__/
 .env
 emoProxy.conf
 nginx/ssl/
+coral-models/
+*.tflite
+deploy/nginx/ssl/
+*.bak

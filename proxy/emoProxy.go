@@ -44,6 +44,7 @@ type Configuration struct {
 	SqliteLocation          string    `json:"sqliteLocation"`
 	ChatGptSpeakServer      string    `json:"chatGptSpeakServer"`
 	N8nWebhookURL           string    `json:"n8nWebhookURL"`
+	CoralVisionURL          string    `json:"coralVisionURL"`
 	Triggers                []Trigger `json:"triggers"`
 }
 
@@ -572,7 +573,7 @@ func registerEMOEndpoints() {
 		if r.Method == "POST" {
 			imgBody, _ := io.ReadAll(r.Body)
 
-			// Save photo to /var/data/photos/
+			// Save photo
 			photoDir := "/var/data/photos/"
 			os.MkdirAll(photoDir, os.ModePerm)
 			ts := time.Now().Format("20060102_150405")
@@ -581,59 +582,57 @@ func registerEMOEndpoints() {
 				log.Printf("photo save error: %v", err)
 			} else {
 				log.Printf("photo saved: %s (%d bytes)", photoPath, len(imgBody))
-				// Notify n8n about new photo (async)
-				go func(path string, size int) {
-					if conf.N8nWebhookURL == "" {
-						return
-					}
-					payload := fmt.Sprintf(`{"event":"photo","photo_path":"%s","size":%d,"timestamp":"%s"}`, path, size, ts)
-					req, err := http.NewRequest("POST", conf.N8nWebhookURL, bytes.NewBufferString(payload))
-					if err != nil {
-						return
-					}
-					req.Header.Set("Content-Type", "application/json")
-					client := &http.Client{Timeout: 5 * time.Second}
-					resp, err := client.Do(req)
-					if err != nil {
-						log.Printf("n8n photo notify error: %v", err)
-						return
-					}
-					resp.Body.Close()
-					log.Printf("n8n photo notify: %d", resp.StatusCode)
-				}(photoPath, len(imgBody))
 			}
 
-			// Forward to living.ai
-			req, _ := http.NewRequest("POST",
-				"https://"+conf.Livingio_API_Server+r.URL.RequestURI(),
-				bytes.NewReader(imgBody))
-			req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
-			req.Header.Set("Content-Length", strconv.Itoa(len(imgBody)))
-			if v := r.Header.Get("Authorization"); v != "" {
-				req.Header.Set("Authorization", v)
-			}
-			if v := r.Header.Get("Secret"); v != "" {
-				req.Header.Set("Secret", v)
-			}
-			req.Header.Del("User-Agent")
+			// Notify n8n with photo path
+			imgBodyCopy := make([]byte, len(imgBody))
+			copy(imgBodyCopy, imgBody)
+			go func(path string, size int) {
+				if conf.N8nWebhookURL == "" {
+					return
+				}
+				payload := fmt.Sprintf(`{"event":"photo","photo_path":"%s","size":%d,"timestamp":"%s"}`, path, size, ts)
+				req, err := http.NewRequest("POST", conf.N8nWebhookURL, bytes.NewBufferString(payload))
+				if err != nil {
+					return
+				}
+				req.Header.Set("Content-Type", "application/json")
+				client := &http.Client{Timeout: 10 * time.Second}
+				resp, err := client.Do(req)
+				if err != nil {
+					log.Printf("n8n photo notify error: %v", err)
+					return
+				}
+				defer resp.Body.Close()
+				n8nBody, _ := io.ReadAll(resp.Body)
+				log.Printf("n8n photo response: %s", string(n8nBody))
+			}(photoPath, len(imgBody))
 
-			client := &http.Client{Timeout: 30 * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				log.Printf("imgrecog forward error: %v", err)
-				w.WriteHeader(http.StatusBadGateway)
-				return
-			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			log.Printf("imgrecog response: %s", string(body))
-
-			if conf.EnableDatabaseAndAPI {
-				saveRequest(r.URL.RequestURI(), "", string(body))
-			}
+			// Forward to living.ai (background)
+			go func() {
+				fwdReq, _ := http.NewRequest("POST",
+					"https://" + conf.Livingio_API_Server + r.URL.RequestURI(),
+					bytes.NewReader(imgBody))
+				fwdReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+				if v := r.Header.Get("Authorization"); v != "" {
+					fwdReq.Header.Set("Authorization", v)
+				}
+				if v := r.Header.Get("Secret"); v != "" {
+					fwdReq.Header.Set("Secret", v)
+				}
+				client := &http.Client{Timeout: 30 * time.Second}
+				resp, err := client.Do(fwdReq)
+				if err != nil {
+					log.Printf("imgrecog living.ai error: %v", err)
+					return
+				}
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				log.Printf("imgrecog living.ai bg: %s", string(body))
+			}()
 
 			w.WriteHeader(http.StatusOK)
-			w.Write(body)
+			w.Write([]byte(`{"code":200,"errmessage":"ok"}`))
 			return
 		}
 
