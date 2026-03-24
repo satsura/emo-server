@@ -28,25 +28,30 @@ last_alert = {}
 stats = {"events": 0, "forwarded": 0, "snapshots": 0, "errors": 0}
 
 def get_snapshot(channel_id):
-    """Get HD snapshot via RTSP from NVR using ffmpeg."""
-    import subprocess
+    import subprocess, os
     channel = int(channel_id) * 100 + 1
     tmp_path = f"/tmp/snap_{channel}.jpg"
     try:
-        result = subprocess.run([
-            "ffmpeg", "-rtsp_transport", "tcp", "-loglevel", "error",
+        os.remove(tmp_path)
+    except:
+        pass
+    try:
+        subprocess.run([
+            "ffmpeg", "-rtsp_transport", "tcp", "-loglevel", "quiet",
             "-i", f"rtsp://{USER}:{PASS}@{NVR_IP}:554/Streaming/Channels/{channel}",
-            "-frames:v", "1", "-q:v", "2",
+            "-t", "2", "-update", "1", "-q:v", "1",
             tmp_path, "-y"
-        ], capture_output=True, timeout=10)
-        if result.returncode == 0:
+        ], capture_output=True, timeout=15)
+    except:
+        pass
+    try:
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 1000:
             with open(tmp_path, "rb") as f:
                 data = f.read()
-            if len(data) > 1000:
-                stats["snapshots"] += 1
-                return data
-    except Exception as e:
-        print(f"Snapshot error ch{channel_id}: {e}")
+            stats["snapshots"] += 1
+            return data
+    except:
+        pass
     return None
 
 def watch_nvr():
