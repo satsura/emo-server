@@ -109,6 +109,9 @@ services:
       - HIK_PASS=911HPExp
       - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/5AV2WwzthB3S3BLj/webhook/emo
       - COOLDOWN=30
+      - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
+      - TG_CHAT_ID=405695817
+      - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.4
     restart: unless-stopped
 
 volumes:
