@@ -23,8 +23,8 @@ VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.4"))
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 WHISPER_LANG = os.environ.get("WHISPER_LANG", "ru")
 print(f"Loading faster-whisper {WHISPER_MODEL}...")
-# (vosk removed)
-# (vosk removed)
+_whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+print(f"faster-whisper {WHISPER_MODEL} loaded.")
 
 AUDIO_DIR = "/tmp/emo-audio"
 SERVE_HOST = os.environ.get("SERVE_HOST", "192.168.1.64")
@@ -32,7 +32,6 @@ AUDIO_URL_BASE = os.environ.get("AUDIO_URL_BASE", f"http://{SERVE_HOST}:{os.envi
 SERVE_PORT = int(os.environ.get("PORT", "9090"))
 LIVING_AI_HOST = "eu1-api.living.ai"
 N8N_WEBHOOK_URL = os.environ.get("N8N_WEBHOOK_URL", "http://127.0.0.1:5678/webhook/emo")
-BLE_URL = os.environ.get("BLE_URL", "http://127.0.0.1:8091")
 RHVOICE_URL = os.environ.get("RHVOICE_URL", "http://127.0.0.1:8080")
 RHVOICE_VOICE = os.environ.get("RHVOICE_VOICE", "artemiy")
 RHVOICE_RATE = os.environ.get("RHVOICE_RATE", "65")
@@ -67,6 +66,7 @@ SUPPORTED_ACTIONS = {
     "come_here", "about_comfort", "play_by_yourself",
     "featured_game_magic", "featured_game_camping",
     "listen_to_voice",
+    "bt_start_music",
 }
 
 # Triggers: loaded from env or defaults
@@ -228,6 +228,7 @@ def tts_sync(text, audio_id, voice_params=None):
         # RHVoice → WAV
         encoded = urllib.request.quote(text)
         url = f"{RHVOICE_URL}/say?text={encoded}&voice={RHVOICE_VOICE}&format=wav&rate={rate}"
+        print(f"TTS URL: {url[:120]}")
         wav_path = os.path.join(AUDIO_DIR, f"{audio_id}_raw.wav")
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -328,24 +329,6 @@ def n8n_query(text):
         action = data.get("action", "").strip()
         voice = data.get("voice")  # optional: {rate, pitch, tempo, ...}
         animation = data.get("animation")  # optional: {pre, post}
-        # BLE direct command from n8n
-        ble = data.get("ble")
-        if ble and BLE_URL:
-            try:
-                ble_endpoint = ble.get("endpoint", "")
-                ble_body = json.dumps(ble.get("body", {})).encode()
-                ble_method = ble.get("method", "POST")
-                ble_req = urllib.request.Request(
-                    BLE_URL + ble_endpoint,
-                    data=ble_body if ble_method == "POST" else None,
-                    headers={"Content-Type": "application/json"},
-                    method=ble_method,
-                )
-                with urllib.request.urlopen(ble_req, timeout=10) as ble_resp:
-                    ble_result = json.loads(ble_resp.read())
-                print(f"n8n → BLE {ble_endpoint}: {ble_result}")
-            except Exception as e:
-                print(f"BLE error: {e}")
         if action and action in SUPPORTED_ACTIONS:
             return {"type": "action", "action": action}
         if answer:
@@ -357,8 +340,27 @@ def n8n_query(text):
 
 # ── response builders ─────────────────────────────────────────────────────────
 
+
+def get_livingai_tts(text):
+    """Get TTS URL from living.ai cloud (EMO trusts these URLs)."""
+    try:
+        encoded = urllib.request.quote(text)
+        url = f"https://eu1-api.living.ai/emo/speech/tts?q={encoded}&l=ru"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        if data.get("code") == 200 and data.get("url"):
+            return data["url"]
+    except Exception as e:
+        print(f"Living.ai TTS error: {e}")
+    return None
+
 def build_speak_response(query_text, resp_text, audio_url, lang, idx, animation=None):
     anim = animation or {}
+    # Default post_animation: chatgpt_end for long responses without animation
+    post_anim = ""  # disabled for testing
+    if not post_anim and len(resp_text) > 30:
+        post_anim = ""
     return {
         "queryId": str(uuid.uuid4()),
         "queryResult": {
@@ -369,7 +371,7 @@ def build_speak_response(query_text, resp_text, audio_url, lang, idx, animation=
                 "txt": resp_text,
                 "url": audio_url,
                 "pre_animation": anim.get("pre", ""),
-                "post_animation": anim.get("post", ""),
+                "post_animation": post_anim,
                 "post_behavior": "",
                 "sentiment": "",
                 "listen": 0,
@@ -525,49 +527,49 @@ def build_action_response(action, query_text, lang, idx):
         qr["intent"]["name"] = "power_off"
         qr["behavior_paras"] = {}
     elif action == "show_time":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "time"
         qr["behavior_paras"] = {"utility_type": "time"}
     elif action == "show_date":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "date"
         qr["behavior_paras"] = {"utility_type": "date"}
     elif action == "show_battery":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "battery"
         qr["behavior_paras"] = {"utility_type": "battery"}
 
     # ── Volume ─────────────────────────────────────────────────────────────────
     elif action == "volume_up":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "volume_to"
         qr["behavior_paras"] = {"utility_type": "volume", "volume": {"operation": "max"}}
     elif action == "volume_down":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "volume_to"
         qr["behavior_paras"] = {"utility_type": "volume", "volume": {"operation": "min"}}
     elif action == "volume_mid":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "volume_to"
         qr["behavior_paras"] = {"utility_type": "volume", "volume": {"operation": "mid"}}
     elif action == "volume_mute":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "volume_to"
         qr["behavior_paras"] = {"utility_type": "volume", "volume": {"operation": "mute"}}
 
     # ── Light ──────────────────────────────────────────────────────────────────
     elif action == "light_on":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "turn_on_light"
         qr["behavior_paras"] = {"utility_type": "light", "light": {"hsl": [50, 100, 100], "room": ""}}
     elif action == "light_off":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "turn_off_light"
         qr["behavior_paras"] = {"utility_type": "turn_off_light"}
 
     # ── Photo ──────────────────────────────────────────────────────────────
     elif action == "take_photo":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "take_photo"
         qr["behavior_paras"] = {"utility_type": "take_photo"}
 
@@ -579,7 +581,7 @@ def build_action_response(action, query_text, lang, idx):
 
     # ── Update ─────────────────────────────────────────────────────────────────
     elif action == "check_update":
-        qr["rec_behavior"] = "utilities"
+        qr["rec_behavior"] = "play_music"
         qr["intent"]["name"] = "check_update"
         qr["behavior_paras"] = {"utility_type": "check_update"}
 
@@ -627,6 +629,11 @@ def build_action_response(action, query_text, lang, idx):
         qr["rec_behavior"] = "listen"
         qr["intent"]["name"] = "listen_to_voice"
         qr["behavior_paras"] = {}
+
+    elif action == "bt_start_music":
+        qr["rec_behavior"] = "play_music"
+        qr["intent"]["name"] = "bt_enter_music"
+        qr["behavior_paras"] = {"type": "bluetooth", "action": "enter"}
 
     elif action == "play_by_yourself":
         qr["rec_behavior"] = "play_around"
@@ -686,8 +693,14 @@ def process_audio(audio_bytes, lang, idx):
         animation = n8n_result.get("animation")
         print(f"n8n → speak: {query_text!r} → {resp_text!r}" + (f" voice={voice_params}" if voice_params else "") + (f" anim={animation}" if animation else ""))
         audio_id = hashlib.md5(f"{query_text}{time.time()}".encode()).hexdigest()[:12]
+        # Try living.ai cloud TTS first (EMO trusts these URLs)
+        tts_url = get_livingai_tts(resp_text)
+        if tts_url:
+            print(f"Living.ai TTS: {tts_url}")
+            return build_speak_response("", resp_text, tts_url, lang, idx, animation)
+        # Fallback: local RHVoice TTS
         if tts_sync(resp_text, audio_id, voice_params):
-            return build_speak_response(query_text, resp_text, make_audio_url(audio_id), lang, idx, animation)
+            return build_speak_response("", resp_text, make_audio_url(audio_id), lang, idx, animation)
 
     # 5. Emergency fallback (n8n unreachable) — local trigger match
     action = match_trigger(query_text)

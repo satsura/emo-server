@@ -670,6 +670,21 @@ func registerEMOEndpoints() {
 
 	http.HandleFunc("/tts/", func(w http.ResponseWriter, r *http.Request) {
 		logRequest(r)
+		// Try local file first
+		parts := strings.Split(r.URL.Path, "/tts/dl/")
+		if len(parts) == 2 {
+			audioID := parts[1]
+			localPath := "/home/homer/emo-audio/" + audioID + ".mp3"
+			if data, err := os.ReadFile(localPath); err == nil && len(data) > 100 {
+				log.Printf("TTS: serving local file %s (%d bytes)", localPath, len(data))
+				w.Header().Set("Content-Type", "audio/mpeg")
+				w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+				w.WriteHeader(http.StatusOK)
+				w.Write(data)
+				return
+			}
+		}
+		// Fallback to living.ai
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, makeApiTtsRequest(r))

@@ -9,17 +9,17 @@ services:
     restart: unless-stopped
 
   emo-proxy:
-    build: ../proxy
+    image: ghcr.io/satsura/emo-proxy:latest
     container_name: emo-proxy
     network_mode: "host"
     volumes:
       - ../proxy/emoProxy.conf:/app/emoProxy.conf
       - emo-data:/var/data
       - emo-logs:/var/log
-      - /tmp/probe_gtts:/tmp/probe_gtts
       - emo-tmp:/tmp
       - /home/valera/emo-photos:/var/data/photos
       - /home/valera/emo-audio:/home/valera/emo-audio
+      - /home/valera/emo-audio:/home/homer/emo-audio
     restart: unless-stopped
 
   ai-server:
@@ -37,7 +37,9 @@ services:
       - RHVOICE_URL=http://127.0.0.1:8088
       - RHVOICE_VOICE=artemiy
       - RHVOICE_RATE=65
-      - BLE_URL=http://127.0.0.1:8091
+      - WHISPER_MODEL=small
+      - WHISPER_LANG=ru
+      - VAD_THRESHOLD=0.4
     restart: unless-stopped
 
   rhvoice:
@@ -93,11 +95,24 @@ services:
       - EMO_ADDR=1C:C3:AB:CC:34:62
       - BLE_ADAPTER=hci1
       - SERVER_IP=192.168.1.109
+      - WATCHDOG_INTERVAL=30
+    restart: unless-stopped
+
+  hik-watcher:
+    build: ../hikvision
+    container_name: hik-watcher
+    network_mode: "host"
+    environment:
+      - PORT=8092
+      - NVR_IP=192.168.1.180
+      - HIK_USER=admin
+      - HIK_PASS=911HPExp
+      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/5AV2WwzthB3S3BLj/webhook/emo
+      - COOLDOWN=30
     restart: unless-stopped
 
 volumes:
   emo-data:
   emo-logs:
   emo-tmp:
-  emo-audio:
   n8n-data:
