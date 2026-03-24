@@ -107,7 +107,7 @@ services:
       - NVR_IP=192.168.1.180
       - HIK_USER=admin
       - HIK_PASS=911HPExp
-      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/5AV2WwzthB3S3BLj/webhook/emo
+      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/cam
       - COOLDOWN=30
       - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
       - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc

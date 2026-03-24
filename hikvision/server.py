@@ -96,21 +96,7 @@ class Handler(BaseHTTPRequestHandler):
                                 except:
                                     pass
 
-                                # Telegram — send photo + what Coral found
-                                tg_token = os.environ.get("TG_TOKEN", "")
-                                tg_chat = os.environ.get("TG_CHAT_ID", "")
-                                if tg_token and tg_chat:
-                                    try:
-                                        caption = cam_name + " (" + evt_ts + "): " + (", ".join(labels) or "движение")
-                                        url = "https://api.telegram.org/bot" + tg_token + "/sendPhoto"
-                                        files = {"photo": ("cam.jpg", jpg, "image/jpeg")}
-                                        data = {"chat_id": tg_chat, "caption": caption}
-                                        requests.post(url, files=files, data=data, timeout=10)
-                                        print(f"[TG] {caption}")
-                                    except Exception as e:
-                                        print(f"TG error: {e}")
-
-                                # n8n notification (without photo, just results)
+                                # n8n handles Telegram — send event + photo
                                 if N8N_WEBHOOK:
                                     try:
                                         requests.post(N8N_WEBHOOK, json={
