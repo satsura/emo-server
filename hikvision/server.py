@@ -10,8 +10,8 @@ N8N_WEBHOOK = os.environ.get("N8N_WEBHOOK", "")
 PORT = int(os.environ.get("PORT", "8092"))
 
 CAMERAS = {
-    "1": "Веранда 2", "2": "Веранда 1", "3": "Двор", "4": "Стройка",
-    "5": "Бассейн", "6": "Детская площадка", "7": "Дорога", "8": "Калитка",
+    "1": "Двор", "2": "Дорога", "3": "Стройка", "4": "Детская площадка",
+    "5": "Бассейн", "6": "Калитка", "7": "Веранда 2", "8": "Веранда 1",
 }
 
 stats = {"events": 0, "forwarded": 0, "snapshots": 0}
@@ -27,7 +27,7 @@ def get_snapshot(channel_id):
         subprocess.run([
             "ffmpeg", "-rtsp_transport", "tcp", "-loglevel", "quiet",
             "-i", f"rtsp://{USER}:{PASS}@{NVR_IP}:554/Streaming/Channels/{channel}",
-            "-t", "3", "-update", "1", "-q:v", "1",
+            "-t", "4", "-update", "1", "-q:v", "1",
             tmp_path, "-y"
         ], capture_output=True, timeout=15)
     except:
