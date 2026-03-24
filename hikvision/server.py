@@ -1,5 +1,5 @@
 """Hikvision NVR events + direct camera snapshots → n8n."""
-import requests, threading, time, json, os
+import requests, subprocess, threading, time, json, os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from requests.auth import HTTPDigestAuth
 import xml.etree.ElementTree as ET
@@ -28,31 +28,25 @@ last_alert = {}
 stats = {"events": 0, "forwarded": 0, "snapshots": 0, "errors": 0}
 
 def get_snapshot(channel_id):
-    """Get snapshot: try direct camera (HD), fallback to NVR (SD)."""
-    cam = CAMERAS.get(str(channel_id), {})
-    direct_ip = cam.get("ip")
-    
-    # Try direct camera first (720p-1520p)
-    if direct_ip:
-        try:
-            r = requests.get(f"http://{direct_ip}/ISAPI/Streaming/channels/101/picture",
-                           auth=auth, timeout=2)
-            if r.status_code == 200 and len(r.content) > 1000:
-                stats["snapshots"] += 1
-                return r.content
-        except:
-            pass
-    
-    # Fallback to NVR (576p)
+    """Get HD snapshot via RTSP from NVR using ffmpeg."""
+    import subprocess
     channel = int(channel_id) * 100 + 1
+    tmp_path = f"/tmp/snap_{channel}.jpg"
     try:
-        r = requests.get(f"http://{NVR_IP}/ISAPI/Streaming/channels/{channel}/picture",
-                       auth=auth, timeout=2)
-        if r.status_code == 200 and len(r.content) > 1000:
-            stats["snapshots"] += 1
-            return r.content
-    except:
-        pass
+        result = subprocess.run([
+            "ffmpeg", "-rtsp_transport", "tcp", "-loglevel", "error",
+            "-i", f"rtsp://{USER}:{PASS}@{NVR_IP}:554/Streaming/Channels/{channel}",
+            "-frames:v", "1", "-q:v", "2",
+            tmp_path, "-y"
+        ], capture_output=True, timeout=10)
+        if result.returncode == 0:
+            with open(tmp_path, "rb") as f:
+                data = f.read()
+            if len(data) > 1000:
+                stats["snapshots"] += 1
+                return data
+    except Exception as e:
+        print(f"Snapshot error ch{channel_id}: {e}")
     return None
 
 def watch_nvr():
