@@ -40,6 +40,18 @@ def get_snapshot(channel_id):
             return data
     except:
         pass
+    # Last resort: ISAPI snapshot (lower res but reliable)
+    try:
+        from requests.auth import HTTPDigestAuth
+        auth = HTTPDigestAuth(USER, PASS)
+        channel_api = int(channel_id) * 100 + 1
+        r = requests.get(f"http://{NVR_IP}/ISAPI/Streaming/channels/{channel_api}/picture",
+                        auth=auth, timeout=10)
+        if r.status_code == 200 and len(r.content) > 5000:
+            stats["snapshots"] += 1
+            return r.content
+    except:
+        pass
     return None
 
 class Handler(BaseHTTPRequestHandler):
