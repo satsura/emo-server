@@ -1,178 +1,102 @@
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: emo-nginx
-    network_mode: "host"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    restart: unless-stopped
-
-  emo-proxy:
-    build: ../proxy
-    container_name: emo-proxy
-    network_mode: "host"
-    volumes:
-      - ../proxy/emoProxy.conf:/app/emoProxy.conf
-      - emo-data:/var/data
-      - emo-logs:/var/log
-      - emo-tmp:/tmp
-      - /home/valera/emo-photos:/var/data/photos
-      - /home/valera/emo-audio:/home/valera/emo-audio
-      - /home/valera/emo-audio:/home/homer/emo-audio
-    restart: unless-stopped
-
-  ai-server:
-    build: ../ai-server
-    container_name: emo-ai
-    network_mode: "host"
-    volumes:
-      - ../ai-server/server.py:/app/server.py
-      - /home/valera/emo-audio:/tmp/emo-audio
-    environment:
-      - SERVE_HOST=res.living.ai
-      - PORT=9090
-      - AUDIO_URL_BASE=http://eu1-api.living.ai
-      - N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/5AV2WwzthB3S3BLj/webhook/emo
-      - RHVOICE_URL=http://127.0.0.1:8088
-      - RHVOICE_VOICE=artemiy
-      - RHVOICE_RATE=65
-      - WHISPER_MODEL=small
-      - WHISPER_LANG=ru
-      - VAD_THRESHOLD=0.4
-    restart: unless-stopped
-
-  rhvoice:
-    image: ghcr.io/aculeasis/rhvoice-rest:latest
-    container_name: emo-rhvoice
-    ports:
-      - "8088:8080"
-    restart: unless-stopped
-
-  n8n:
-    image: n8nio/n8n:latest
-    container_name: n8n
-    network_mode: "host"
-    environment:
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://192.168.1.109:5678
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=emo2024
-      - N8N_SECURE_COOKIE=false
-      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
-      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
-      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
-    volumes:
-      - n8n-data:/home/node/.n8n
-      - /home/valera/emo-photos:/photos
-    restart: unless-stopped
-
   coral-vision:
-    image: ghcr.io/satsura/coral-vision:latest
     container_name: coral-vision
-    privileged: true
-    volumes:
-      - /dev/bus/usb:/dev/bus/usb
-      - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:ro
-      - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1:ro
-      - /home/valera/emo-server/coral-models:/models:ro
+    environment:
+    - PORT=8090
+    - THRESHOLD=0.4
+    image: ghcr.io/satsura/coral-vision:latest
     ports:
-      - "8090:8090"
-    environment:
-      - PORT=8090
-      - THRESHOLD=0.4
-    restart: unless-stopped
-
-  emo-ble:
-    image: ghcr.io/satsura/emo-ble:latest
-    container_name: emo-ble
+    - 8090:8090
     privileged: true
-    network_mode: "host"
-    volumes:
-      - /var/run/dbus:/var/run/dbus
-    environment:
-      - PORT=8091
-      - PHOTO_PORT=8099
-      - EMO_ADDR=1C:C3:AB:CC:34:62
-      - BLE_ADAPTER=hci1
-      - SERVER_IP=192.168.1.109
-      - WATCHDOG_INTERVAL=30
     restart: unless-stopped
-
+    volumes:
+    - /dev/bus/usb:/dev/bus/usb
+    - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:ro
+    - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1:ro
+    - /home/valera/emo-server/coral-models:/models:ro
   hik-watcher:
     build: ../hikvision
     container_name: hik-watcher
-    network_mode: "host"
     environment:
-      - PORT=8092
-      - NVR_IP=192.168.1.180
-      - HIK_USER=admin
-      - HIK_PASS=911HPExp
-      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/2Muv6QfJcJlnYVWC/webhook/cam
-      - COOLDOWN=120
-      - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
-      - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
-      - TG_CHAT_ID=405695817
+    - PORT=8092
+    - NVR_IP=192.168.1.180
+    - HIK_USER=admin
+    - HIK_PASS=911HPExp
+    - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/2Muv6QfJcJlnYVWC/webhook/cam
+    - COOLDOWN=120
+    - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
+    - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
+    - TG_CHAT_ID=405695817
+    network_mode: host
     restart: unless-stopped
-
-  mosquitto:
-    image: eclipse-mosquitto:2
-    container_name: mosquitto
-    ports:
-      - "1883:1883"
-    volumes:
-      - mosquitto-data:/mosquitto/data
-      - mosquitto-config:/mosquitto/config
-    restart: unless-stopped
-
-  zigbee2mqtt:
-    image: koenkk/zigbee2mqtt
-    container_name: zigbee2mqtt
-    network_mode: "host"
-    volumes:
-      - z2m-data:/app/data
-      - /run/udev:/run/udev:ro
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    environment:
-      - TZ=Europe/Minsk
-    restart: unless-stopped
-
   homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
     container_name: homeassistant
-    network_mode: "host"
     dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    volumes:
-      - ha-data:/config
-      - /run/dbus:/run/dbus:ro
+    - 8.8.8.8
+    - 1.1.1.1
     environment:
-      - TZ=Europe/Minsk
+    - TZ=Europe/Minsk
+    image: ghcr.io/home-assistant/home-assistant:stable
+    network_mode: host
     privileged: true
     restart: unless-stopped
-
-  matter-server:
-    image: ghcr.io/home-assistant-libs/python-matter-server:stable
-    container_name: matter-server
-    network_mode: "host"
     volumes:
-      - matter-data:/data
+    - ha-data:/config
+    - /run/dbus:/run/dbus:ro
+  matter-server:
+    container_name: matter-server
     environment:
-      - MATTER_SERVER__INSTANCE_NAME=Matter
-      - MATTER_SERVER__PORT=5580
+    - MATTER_SERVER__INSTANCE_NAME=Matter
+    - MATTER_SERVER__PORT=5580
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    network_mode: host
     restart: unless-stopped
-
+    volumes:
+    - matter-data:/data
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:2
+    ports:
+    - 1883:1883
+    restart: unless-stopped
+    volumes:
+    - mosquitto-data:/mosquitto/data
+    - mosquitto-config:/mosquitto/config
+  n8n:
+    container_name: n8n
+    environment:
+    - N8N_PORT=5678
+    - N8N_PROTOCOL=http
+    - WEBHOOK_URL=http://192.168.1.109:5678
+    - N8N_BASIC_AUTH_ACTIVE=true
+    - N8N_BASIC_AUTH_USER=admin
+    - N8N_BASIC_AUTH_PASSWORD=emo2024
+    - N8N_SECURE_COOKIE=false
+    - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+    - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+    - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
+    image: n8nio/n8n:latest
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+    - n8n-data:/home/node/.n8n
+    - /home/valera/emo-photos:/photos
+  zigbee2mqtt:
+    container_name: zigbee2mqtt
+    devices:
+    - /dev/ttyACM0:/dev/ttyACM0
+    environment:
+    - TZ=Europe/Minsk
+    image: koenkk/zigbee2mqtt
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+    - z2m-data:/app/data
+    - /run/udev:/run/udev:ro
 volumes:
-  emo-data:
-  emo-logs:
-  emo-tmp:
-  n8n-data:
-  mosquitto-data:
-  mosquitto-config:
-  z2m-data:
-  ha-data:
-  matter-data:
+  ha-data: null
+  matter-data: null
+  mosquitto-config: null
+  mosquitto-data: null
+  n8n-data: null
+  z2m-data: null
