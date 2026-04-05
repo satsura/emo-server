@@ -158,9 +158,11 @@ def process_event(channel_id, event_type):
             stats["n8n_sent"] += 1
             result = r.json() if r.status_code == 200 else {}
             status = result.get("status", "")
-            if status == "sent":
+            if status in ("sent", "send"):
                 stats["n8n_confirmed"] += 1
+                caption = result.get("caption", f"{camera}: {labels}")
                 print(f"  [{camera}] Coral confirmed → Telegram")
+                send_telegram(jpg, caption)
             else:
                 print(f"  [{camera}] n8n: {status}")
         except Exception as e:

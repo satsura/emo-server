@@ -11,6 +11,7 @@ services:
     restart: unless-stopped
     volumes:
     - /dev/bus/usb:/dev/bus/usb
+    - /home/valera/emo-server/coral-models:/models
   hik-watcher:
     build: ../hikvision
     container_name: hik-watcher
