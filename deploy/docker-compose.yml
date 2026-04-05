@@ -19,11 +19,11 @@ services:
     - NVR_IP=192.168.1.180
     - HIK_USER=admin
     - HIK_PASS=911HPExp
-    - COOLDOWN=30
     - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
     - TG_CHAT_ID=405695817
     - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
-    - COOLDOWN_VMD=300
+    - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/cameras_v2/webhook/cam
+    - COOLDOWN=10
     network_mode: host
     restart: unless-stopped
   homeassistant:

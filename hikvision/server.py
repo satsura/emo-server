@@ -1,4 +1,8 @@
-"""Hikvision NVR watcher — hybrid: AcuSense smart events + Coral for non-smart cameras."""
+"""Hikvision NVR watcher — 2-stage detection pipeline.
+Stage 1: Local YOLOv8n (fast pre-filter)
+Stage 2: n8n → Coral TPU (confirmation)
+→ Telegram if confirmed
+"""
 import requests, subprocess, time, json, os, threading, base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from requests.auth import HTTPDigestAuth
@@ -8,26 +12,72 @@ NVR_IP = os.environ.get("NVR_IP", "192.168.1.180")
 USER = os.environ.get("HIK_USER", "admin")
 PASS = os.environ.get("HIK_PASS", "911HPExp")
 PORT = int(os.environ.get("PORT", "8092"))
-CORAL_URL = os.environ.get("CORAL_URL", "http://127.0.0.1:8090/detect?lang=ru&threshold=0.3")
+N8N_WEBHOOK = os.environ.get("N8N_WEBHOOK", "")
 TG_TOKEN = os.environ.get("TG_TOKEN", "8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc")
 TG_CHAT = os.environ.get("TG_CHAT_ID", os.environ.get("TG_CHAT", "405695817"))
-COOLDOWN_SMART = int(os.environ.get("COOLDOWN_SMART", "30"))
-COOLDOWN_VMD = int(os.environ.get("COOLDOWN_VMD", "120"))
+COOLDOWN = int(os.environ.get("COOLDOWN", "10"))
+YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.3"))
 
 CAMERAS = {
     "1": "Двор", "2": "Дорога", "3": "Стройка", "4": "Детская площадка",
     "5": "Бассейн", "6": "Калитка", "7": "Веранда 2", "8": "Веранда 1",
 }
 
-# AcuSense cameras (G2) — can detect humans themselves
-ACUSENSE_CHANNELS = {"1", "3"}
+INTERESTING_CLASSES = {
+    0: "человек", 1: "велосипед", 2: "машина", 3: "мотоцикл",
+    5: "автобус", 7: "грузовик",
+    14: "птица", 15: "кошка", 16: "собака", 17: "лошадь",
+    18: "овца", 19: "корова", 21: "медведь",
+}
 
-SMART_EVENTS = {"fielddetection", "linedetection", "facedetection"}
+stats = {"events": 0, "snapshots": 0,
+         "yolo_detected": 0, "yolo_nothing": 0,
+         "n8n_sent": 0, "n8n_confirmed": 0,
+         "alerts": 0, "errors": 0}
+last_event = {}
 
-stats = {"events": 0, "smart": 0, "vmd_coral": 0, "vmd_skipped": 0,
-         "coral_person": 0, "coral_nothing": 0, "snapshots": 0, "alerts": 0, "errors": 0}
-last_alert = {}
+# ── YOLO ────────────────────────────────────────────────────────────────────
 
+yolo_model = None
+
+def load_yolo():
+    global yolo_model
+    try:
+        from ultralytics import YOLO
+        yolo_model = YOLO("yolov8n.pt")
+        import numpy as np
+        yolo_model.predict(np.zeros((640, 640, 3), dtype=np.uint8), verbose=False)
+        print("YOLOv8n loaded")
+    except Exception as e:
+        print(f"YOLO load error: {e}")
+
+
+def yolo_detect(jpg_data):
+    if yolo_model is None:
+        return []
+    try:
+        import numpy as np, cv2
+        img = cv2.imdecode(np.frombuffer(jpg_data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return []
+        results = yolo_model.predict(img, conf=YOLO_CONF, verbose=False)
+        detections = []
+        for r in results:
+            for box in r.boxes:
+                cls_id = int(box.cls[0])
+                if cls_id in INTERESTING_CLASSES:
+                    detections.append({
+                        "label": INTERESTING_CLASSES[cls_id],
+                        "class_id": cls_id,
+                        "score": round(float(box.conf[0]), 3),
+                    })
+        return detections
+    except Exception as e:
+        print(f"  YOLO error: {e}")
+        return []
+
+
+# ── Snapshot ────────────────────────────────────────────────────────────────
 
 def get_snapshot(channel_id):
     channel = int(channel_id) * 100 + 1
@@ -42,14 +92,16 @@ def get_snapshot(channel_id):
             "-i", f"rtsp://{USER}:{PASS}@{NVR_IP}:554/Streaming/Channels/{channel}",
             "-frames:v", "5", "-q:v", "2", tmp_path, "-y"
         ], capture_output=True, timeout=15)
-    except Exception as e:
-        print(f"  RTSP error ch{channel_id}: {e}")
+    except:
+        pass
     if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 20000:
         with open(tmp_path, "rb") as f:
             stats["snapshots"] += 1
             return f.read()
     return None
 
+
+# ── Telegram ────────────────────────────────────────────────────────────────
 
 def send_telegram(photo_bytes, caption):
     try:
@@ -59,71 +111,74 @@ def send_telegram(photo_bytes, caption):
                          timeout=15)
         if r.status_code == 200:
             stats["alerts"] += 1
-            print(f"  Telegram: sent ({len(photo_bytes)} bytes)")
-        else:
-            print(f"  Telegram error: {r.status_code}")
+            print(f"  Telegram: sent")
     except Exception as e:
         print(f"  Telegram error: {e}")
         stats["errors"] += 1
 
 
-def coral_has_person(jpg):
-    """Send image to Coral TPU, return True if person detected."""
-    try:
-        r = requests.post(CORAL_URL, data=jpg,
-                         headers={"Content-Type": "application/octet-stream"}, timeout=10)
-        objects = r.json().get("objects", [])
-        persons = [o for o in objects if o.get("score", 0) > 0.4
-                   and (o.get("label_en") == "person" or o.get("label") == "человек")]
-        if persons:
-            stats["coral_person"] += 1
-            return True
-        stats["coral_nothing"] += 1
-        return False
-    except Exception as e:
-        print(f"  Coral error: {e}")
-        stats["errors"] += 1
-        return False
+# ── Process event ──────────────────────────────────────────────────────────
 
-
-def process_smart_event(channel_id, event_type):
-    """AcuSense camera detected human — snapshot + Telegram directly."""
-    camera = CAMERAS.get(channel_id, f"Камера {channel_id}")
+def process_event(channel_id, event_type):
+    camera = CAMERAS.get(channel_id, f"ch{channel_id}")
     now = time.time()
-    if channel_id in last_alert and (now - last_alert[channel_id]) < COOLDOWN_SMART:
+    if channel_id in last_event and (now - last_event[channel_id]) < COOLDOWN:
         return
-    last_alert[channel_id] = now
+    last_event[channel_id] = now
 
     jpg = get_snapshot(channel_id)
     if not jpg:
         return
 
-    ts = time.strftime("%H:%M:%S")
-    caption = f"🚨 {camera} [{ts}]\nОбнаружен человек (AcuSense)"
-    send_telegram(jpg, caption)
+    # Stage 1: YOLO
+    t0 = time.time()
+    detections = yolo_detect(jpg)
+    yolo_ms = int((time.time() - t0) * 1000)
 
-
-def process_vmd_event(channel_id):
-    """Non-smart camera VMD — snapshot + Coral check + Telegram if person."""
-    camera = CAMERAS.get(channel_id, f"Камера {channel_id}")
-    now = time.time()
-    if channel_id in last_alert and (now - last_alert[channel_id]) < COOLDOWN_VMD:
-        stats["vmd_skipped"] += 1
+    if not detections:
+        stats["yolo_nothing"] += 1
         return
 
-    jpg = get_snapshot(channel_id)
-    if not jpg:
-        return
-    print(f"  [{camera}] snapshot {len(jpg)} bytes → Coral")
+    labels = list(set(d["label"] for d in detections))
+    stats["yolo_detected"] += 1
+    print(f"  [{camera}] YOLO ({yolo_ms}ms): {labels}")
 
-    if coral_has_person(jpg):
-        last_alert[channel_id] = now
-        ts = time.strftime("%H:%M:%S")
-        caption = f"🚨 {camera} [{ts}]\nОбнаружен человек (Coral)"
-        send_telegram(jpg, caption)
+    # Stage 2: n8n → Coral
+    if N8N_WEBHOOK:
+        try:
+            b64 = base64.b64encode(jpg).decode()
+            r = requests.post(N8N_WEBHOOK, json={
+                "event": "camera_detection",
+                "camera": camera,
+                "channel": channel_id,
+                "yolo_labels": labels,
+                "photo_base64": b64,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }, timeout=30)
+            stats["n8n_sent"] += 1
+            result = r.json() if r.status_code == 200 else {}
+            status = result.get("status", "")
+            if status == "sent":
+                stats["n8n_confirmed"] += 1
+                print(f"  [{camera}] Coral confirmed → Telegram")
+            else:
+                print(f"  [{camera}] n8n: {status}")
+        except Exception as e:
+            print(f"  [{camera}] n8n error: {e}")
+            # Fallback: send directly
+            ts = time.strftime("%H:%M:%S")
+            caption = f"🚨 {camera} [{ts}]\n{', '.join(labels)}"
+            send_telegram(jpg, caption)
     else:
-        print(f"  [{camera}] Coral: no person")
+        # No n8n — send directly
+        ts = time.strftime("%H:%M:%S")
+        has_person = "человек" in labels
+        emoji = "🚨" if has_person else "🐾" if any(l in labels for l in ["кошка","собака","птица"]) else "🚗"
+        caption = f"{emoji} {camera} [{ts}]\n{', '.join(labels)}"
+        send_telegram(jpg, caption)
 
+
+# ── Alert stream ───────────────────────────────────────────────────────────
 
 def alert_stream_listener():
     url = f"http://{NVR_IP}/ISAPI/Event/notification/alertStream"
@@ -133,11 +188,11 @@ def alert_stream_listener():
         try:
             print("Connecting to NVR alert stream...")
             r = requests.get(url, auth=auth, stream=True, timeout=(10, None))
-            print("Connected to NVR alert stream")
+            print("Connected")
             buf = ""
             for raw_chunk in r.iter_content(chunk_size=4096):
                 chunk = raw_chunk.decode("utf-8", errors="replace") if isinstance(raw_chunk, bytes) else raw_chunk
-                if chunk is None:
+                if not chunk:
                     continue
                 buf += chunk
                 while "</EventNotificationAlert>" in buf:
@@ -149,48 +204,32 @@ def alert_stream_listener():
                         continue
                     try:
                         root = ET.fromstring(block[start:])
-                        event_type = root.findtext(f"{NS}eventType") or root.findtext("eventType", "")
-                        event_state = root.findtext(f"{NS}eventState") or root.findtext("eventState", "")
-                        channel_id = root.findtext(f"{NS}dynChannelID") or root.findtext(f"{NS}channelID") or "0"
-
-                        if event_state != "active":
-                            continue
-                        stats["events"] += 1
-                        camera = CAMERAS.get(channel_id, f"ch{channel_id}")
-
-                        if event_type in SMART_EVENTS:
-                            # AcuSense smart event — human detected by camera
-                            stats["smart"] += 1
-                            print(f"[{camera}] {event_type} (SMART)")
-                            threading.Thread(target=process_smart_event,
-                                           args=(channel_id, event_type), daemon=True).start()
-                        elif event_type == "VMD" and channel_id not in ACUSENSE_CHANNELS:
-                            # VMD from non-smart camera — check with Coral
-                            stats["vmd_coral"] += 1
-                            print(f"[{camera}] VMD → Coral")
-                            threading.Thread(target=process_vmd_event,
-                                           args=(channel_id,), daemon=True).start()
-                        # VMD from AcuSense channels ignored (smart events handle them)
-
+                        etype = root.findtext(f"{NS}eventType") or root.findtext("eventType", "")
+                        estate = root.findtext(f"{NS}eventState") or root.findtext("eventState", "")
+                        chid = root.findtext(f"{NS}dynChannelID") or root.findtext(f"{NS}channelID") or "0"
+                        if estate == "active" and etype in ("VMD", "fielddetection", "linedetection", "facedetection"):
+                            stats["events"] += 1
+                            camera = CAMERAS.get(chid, f"ch{chid}")
+                            print(f"[{camera}] {etype}")
+                            threading.Thread(target=process_event, args=(chid, etype), daemon=True).start()
                     except ET.ParseError:
                         pass
         except Exception as e:
-            print(f"Alert stream error: {e}")
+            print(f"Stream error: {e}")
             stats["errors"] += 1
         print("Reconnecting in 5s...")
         time.sleep(5)
 
 
+# ── HTTP API ───────────────────────────────────────────────────────────────
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
-            body = json.dumps({"status": "ok", "nvr": NVR_IP, "cameras": CAMERAS,
-                              "stats": stats, "acusense_channels": list(ACUSENSE_CHANNELS),
-                              "cooldown_smart": COOLDOWN_SMART, "cooldown_vmd": COOLDOWN_VMD}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(body)
+            self._json({"status": "ok", "nvr": NVR_IP, "cameras": CAMERAS,
+                        "stats": stats, "cooldown": COOLDOWN,
+                        "yolo": yolo_model is not None,
+                        "n8n": bool(N8N_WEBHOOK)})
         elif self.path.startswith("/snapshot/"):
             ch = self.path.split("/snapshot/")[1]
             jpg = get_snapshot(ch)
@@ -207,14 +246,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _json(self, data):
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, *a):
         pass
 
 
 if __name__ == "__main__":
     print(f"Hik-watcher :{PORT}, NVR {NVR_IP}, {len(CAMERAS)} cameras")
-    print(f"AcuSense channels: {ACUSENSE_CHANNELS} (smart → Telegram directly)")
-    print(f"Other channels: VMD → Coral → if person → Telegram")
-    print(f"Cooldown: smart={COOLDOWN_SMART}s, VMD={COOLDOWN_VMD}s")
+    print(f"Pipeline: event → YOLO (local) → n8n → Coral (confirm) → Telegram")
+    print(f"Cooldown: {COOLDOWN}s per camera")
+    print("Loading YOLOv8n...")
+    load_yolo()
     threading.Thread(target=alert_stream_listener, daemon=True).start()
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
