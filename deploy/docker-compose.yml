@@ -1,19 +1,4 @@
 services:
-  coral-vision:
-    container_name: coral-vision
-    environment:
-    - PORT=8090
-    - THRESHOLD=0.4
-    image: ghcr.io/satsura/coral-vision:latest
-    ports:
-    - 8090:8090
-    privileged: true
-    restart: unless-stopped
-    volumes:
-    - /dev/bus/usb:/dev/bus/usb
-    - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0:ro
-    - /usr/lib/x86_64-linux-gnu/libedgetpu.so.1:/usr/lib/x86_64-linux-gnu/libedgetpu.so.1:ro
-    - /home/valera/emo-server/coral-models:/models:ro
   hik-watcher:
     build: ../hikvision
     container_name: hik-watcher
@@ -22,9 +7,7 @@ services:
     - NVR_IP=192.168.1.180
     - HIK_USER=admin
     - HIK_PASS=911HPExp
-    - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/2Muv6QfJcJlnYVWC/webhook/cam
-    - COOLDOWN=120
-    - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
+    - COOLDOWN=30
     - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
     - TG_CHAT_ID=405695817
     network_mode: host
