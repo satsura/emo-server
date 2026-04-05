@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
 
   emo-proxy:
-    image: ghcr.io/satsura/emo-proxy:latest
+    build: ../proxy
     container_name: emo-proxy
     network_mode: "host"
     volumes:
@@ -61,6 +61,9 @@ services:
       - N8N_BASIC_AUTH_USER=admin
       - N8N_BASIC_AUTH_PASSWORD=emo2024
       - N8N_SECURE_COOKIE=false
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
     volumes:
       - n8n-data:/home/node/.n8n
       - /home/valera/emo-photos:/photos
@@ -107,11 +110,60 @@ services:
       - NVR_IP=192.168.1.180
       - HIK_USER=admin
       - HIK_PASS=911HPExp
-      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/cam
-      - COOLDOWN=30
+      - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/2Muv6QfJcJlnYVWC/webhook/cam
+      - COOLDOWN=120
       - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
       - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
       - TG_CHAT_ID=405695817
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-config:/mosquitto/config
+    restart: unless-stopped
+
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt
+    container_name: zigbee2mqtt
+    network_mode: "host"
+    volumes:
+      - z2m-data:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    environment:
+      - TZ=Europe/Minsk
+    restart: unless-stopped
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    network_mode: "host"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    volumes:
+      - ha-data:/config
+      - /run/dbus:/run/dbus:ro
+    environment:
+      - TZ=Europe/Minsk
+    privileged: true
+    restart: unless-stopped
+
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    network_mode: "host"
+    volumes:
+      - matter-data:/data
+    environment:
+      - MATTER_SERVER__INSTANCE_NAME=Matter
+      - MATTER_SERVER__PORT=5580
     restart: unless-stopped
 
 volumes:
@@ -119,3 +171,8 @@ volumes:
   emo-logs:
   emo-tmp:
   n8n-data:
+  mosquitto-data:
+  mosquitto-config:
+  z2m-data:
+  ha-data:
+  matter-data:

@@ -431,6 +431,324 @@ func writePid() {
 	f.WriteString(fmt.Sprintf("%d", os.Getpid()))
 }
 
+
+// ── Living.ai sync STT + n8n brain ──────────────────────────────────────────
+
+type n8nResponse struct {
+	Action      string                 `json:"action"`
+	Text        string                 `json:"text"`
+	Voice       map[string]interface{} `json:"voice"`
+	Animation   map[string]string      `json:"animation"`
+	AsyncAction string                 `json:"async_action"`
+	Query       string                 `json:"query"`
+}
+
+func sendToLivingAISync(r *http.Request, audioBody []byte) ([]byte, error) {
+	req, err := http.NewRequest("POST",
+		"https://"+conf.Livingio_API_Server+r.URL.RequestURI(),
+		bytes.NewReader(audioBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+	req.Header.Set("Content-Length", strconv.Itoa(len(audioBody)))
+	if v := r.Header.Get("Authorization"); v != "" {
+		req.Header.Set("Authorization", v)
+	}
+	if v := r.Header.Get("Secret"); v != "" {
+		req.Header.Set("Secret", v)
+	}
+	req.Header.Del("User-Agent")
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+func extractQueryText(body []byte) string {
+	var resp struct {
+		QueryResult struct {
+			QueryText string `json:"queryText"`
+		} `json:"queryResult"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ""
+	}
+	return resp.QueryResult.QueryText
+}
+
+func queryN8N(text string) (*n8nResponse, error) {
+	if conf.N8nWebhookURL == "" {
+		return nil, fmt.Errorf("n8n webhook URL not configured")
+	}
+	payload := fmt.Sprintf(`{"event":"voice","text":"%s","language":"ru"}`,
+		strings.ReplaceAll(strings.ReplaceAll(text, `\`, `\\`), `"`, `\"`))
+	req, err := http.NewRequest("POST", conf.N8nWebhookURL,
+		bytes.NewBufferString(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("n8n response: %s", string(body))
+	var result n8nResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func getLivingAITTSURL(text, secret, auth string) string {
+	encoded := strings.ReplaceAll(text, " ", "%20")
+	// URL-encode Cyrillic
+	var buf bytes.Buffer
+	for _, r := range text {
+		if r <= 127 && r != ' ' {
+			buf.WriteRune(r)
+		} else if r == ' ' {
+			buf.WriteString("%20")
+		} else {
+			b := []byte(string(r))
+			for _, c := range b {
+				fmt.Fprintf(&buf, "%%%02X", c)
+			}
+		}
+	}
+	encoded = buf.String()
+
+	url := fmt.Sprintf("https://%s/emo/speech/tts?l=ru&q=%s",
+		conf.Livingio_API_Server, encoded)
+	req, _ := http.NewRequest("GET", url, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	if secret != "" {
+		req.Header.Set("Secret", secret)
+	}
+	req.Header.Del("User-Agent")
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("living.ai TTS error: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var ttsResp struct {
+		Code int    `json:"code"`
+		URL  string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &ttsResp); err == nil && ttsResp.Code == 200 && ttsResp.URL != "" {
+		log.Printf("living.ai TTS URL: %s", ttsResp.URL)
+		return ttsResp.URL
+	}
+	log.Printf("living.ai TTS failed: %s", string(body))
+	return ""
+}
+
+func getLocalTTSURL(text string) string {
+	// Call emo-ai RHVoice TTS and get local audio URL
+	payload := fmt.Sprintf(`{"text":"%s"}`,
+		strings.ReplaceAll(strings.ReplaceAll(text, `\`, `\\`), `"`, `\"`))
+	req, _ := http.NewRequest("POST", conf.ChatGptSpeakServer+"/tts",
+		bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("local TTS error: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var ttsResp struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &ttsResp); err == nil && ttsResp.URL != "" {
+		return ttsResp.URL
+	}
+	return ""
+}
+
+
+func patchLivingAIResponse(livingBody []byte, newText, newTTSURL string) []byte {
+	// Extract queryId and resultCode from living.ai response to reuse
+	var resp struct {
+		QueryId      string `json:"queryId"`
+		LanguageCode string `json:"languageCode"`
+		Index        int    `json:"index"`
+		QueryResult  struct {
+			ResultCode string `json:"resultCode"`
+		} `json:"queryResult"`
+	}
+	if err := json.Unmarshal(livingBody, &resp); err != nil {
+		return nil
+	}
+	qid := resp.QueryId
+	rid := resp.QueryResult.ResultCode
+	if qid == "" || rid == "" {
+		return nil
+	}
+	// Clean text for EMO (remove quotes and special chars that break firmware)
+	escaped := strings.ReplaceAll(newText, `\`, "")
+	escaped = strings.ReplaceAll(escaped, `"`, "")
+	escaped = strings.ReplaceAll(escaped, "\n", " ")
+	escaped = strings.ReplaceAll(escaped, "\r", "")
+	escaped = strings.ReplaceAll(escaped, "\t", " ")
+	// Build response with exact living.ai field order
+	j := `{"queryId":"` + qid +
+		`","queryResult":{"rec_behavior":"speak","behavior_paras":{"txt":"` + escaped +
+		`","url":"` + newTTSURL +
+		`","pre_animation":"","post_animation":"","post_behavior":"","sentiment":"","listen":0},"resultCode":"` + rid +
+		`","queryText":"` + escaped +
+		`","intent":{"name":"chatgpt_speak","confidence":1}},"languageCode":"` + resp.LanguageCode +
+		`","index":` + strconv.Itoa(resp.Index) + `}`
+	return []byte(j)
+}
+
+
+func callEmoAIBuildAction(action, queryText, lang, idx string) []byte {
+	payload := fmt.Sprintf(`{"action":"%s","query_text":"%s","lang":"%s","idx":"%s"}`,
+		strings.ReplaceAll(action, `"`, `"`),
+		strings.ReplaceAll(queryText, `"`, `"`),
+		lang, idx)
+	req, err := http.NewRequest("POST", conf.ChatGptSpeakServer+"/build_action",
+		bytes.NewBufferString(payload))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("emo-ai /build_action error: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		log.Printf("emo-ai /build_action status %d: %s", resp.StatusCode, string(body))
+		return nil
+	}
+	return body
+}
+
+func buildSpeakJSON(text, ttsURL, lang, idx string, animation map[string]string) []byte {
+	idxInt := 0
+	if v, err := strconv.Atoi(idx); err == nil {
+		idxInt = v
+	}
+	preAnim := ""
+	postAnim := ""
+	if animation != nil {
+		if v, ok := animation["pre"]; ok {
+			preAnim = v
+		}
+		if v, ok := animation["post"]; ok {
+			postAnim = v
+		}
+	}
+	// Escape text for JSON
+	escapedText := strings.ReplaceAll(text, `\`, `\\`)
+	escapedText = strings.ReplaceAll(escapedText, `"`, `\"`)
+
+	n := time.Now().UnixNano()
+	qid := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", n&0xFFFFFFFF, (n>>32)&0xFFFF, (n>>48)&0xFFFF, (n>>16)&0xFFFF, n&0xFFFFFFFFFFFF)
+	rid := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", (n>>8)&0xFFFFFFFF, (n>>40)&0xFFFF, (n>>24)&0xFFFF, (n>>56)&0xFFFF, (n>>4)&0xFFFFFFFFFFFF)
+
+	// Build JSON manually to match living.ai field order exactly
+	j := `{"queryId":"` + qid + `","queryResult":{"rec_behavior":"speak","behavior_paras":{"txt":"` + escapedText + `","url":"` + ttsURL + `","pre_animation":"` + preAnim + `","post_animation":"` + postAnim + `","post_behavior":"","sentiment":"","listen":0},"resultCode":"` + rid + `","queryText":"` + escapedText + `","intent":{"name":"chatgpt_speak","confidence":1}},"languageCode":"` + lang + `","index":` + strconv.Itoa(idxInt) + `}`
+	return []byte(j)
+}
+
+func buildActionJSON(action, queryText, lang, idx string) []byte {
+	idxInt := 0
+	if v, err := strconv.Atoi(idx); err == nil {
+		idxInt = v
+	}
+
+	qr := map[string]interface{}{
+		"queryText": queryText,
+		"intent":    map[string]interface{}{"name": action, "confidence": 1},
+	}
+
+	switch action {
+	case "dance":
+		qr["rec_behavior"] = "dance"
+		qr["behavior_paras"] = []interface{}{}
+	case "dance_lights":
+		qr["intent"] = map[string]interface{}{"name": "dance_with_lights", "confidence": 1}
+		qr["rec_behavior"] = "dance"
+		qr["behavior_paras"] = []interface{}{}
+	case "be_quiet":
+		qr["rec_behavior"] = "stay_still"
+		qr["behavior_paras"] = map[string]interface{}{}
+	case "sleep":
+		qr["rec_behavior"] = "sleep"
+		qr["behavior_paras"] = map[string]interface{}{}
+	case "explore":
+		qr["rec_behavior"] = "explore"
+		qr["behavior_paras"] = map[string]interface{}{}
+	case "listen_to_voice":
+		qr["rec_behavior"] = "listen"
+		qr["behavior_paras"] = map[string]interface{}{}
+	default:
+		qr["rec_behavior"] = action
+		qr["behavior_paras"] = map[string]interface{}{}
+	}
+
+	resp := map[string]interface{}{
+		"queryId":      fmt.Sprintf("%d", time.Now().UnixNano()),
+		"queryResult":  qr,
+		"languageCode": lang,
+		"index":        idxInt,
+	}
+	b, _ := json.Marshal(resp)
+	return b
+}
+
+func checkPendingSay() []byte {
+	// Check emo-ai for pending_say/pending_action
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(conf.ChatGptSpeakServer + "/pending")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var pending struct {
+		Type   string            `json:"type"`
+		Text   string            `json:"text"`
+		URL    string            `json:"url"`
+		Action string            `json:"action"`
+	}
+	if err := json.Unmarshal(body, &pending); err != nil || (pending.Text == "" && pending.Action == "") {
+		return nil
+	}
+	log.Printf("pending found: %+v", pending)
+	return body
+}
+
 // sendToLivingAIBackground forwards audio to living.ai in a goroutine and saves result to DB.
 func sendToLivingAIBackground(r *http.Request, audioBody []byte) {
 	go func() {
@@ -466,6 +784,140 @@ func sendToLivingAIBackground(r *http.Request, audioBody []byte) {
 	}()
 }
 
+
+// ── Pending response queue (for async operations like BLE photo) ────────────
+
+var (
+	pendingResponseMu   sync.Mutex
+	pendingResponseText string
+
+	lastLivingBodyMu sync.Mutex
+	lastLivingBody   []byte
+)
+
+func queuePendingResponse(text string) {
+	pendingResponseMu.Lock()
+	pendingResponseText = text
+	pendingResponseMu.Unlock()
+	log.Printf("Queued pending response: %s", text)
+}
+
+func popPendingResponse() string {
+	pendingResponseMu.Lock()
+	defer pendingResponseMu.Unlock()
+	r := pendingResponseText
+	pendingResponseText = ""
+	return r
+}
+
+func saveLastLivingBody(body []byte) {
+	lastLivingBodyMu.Lock()
+	lastLivingBody = make([]byte, len(body))
+	copy(lastLivingBody, body)
+	lastLivingBodyMu.Unlock()
+}
+
+func getLastLivingBody() []byte {
+	lastLivingBodyMu.Lock()
+	defer lastLivingBodyMu.Unlock()
+	return lastLivingBody
+}
+
+func runAsyncAction(action string) {
+	switch action {
+	case "ble_photo_recognize":
+		go asyncBLEPhotoRecognize()
+	case "ble_photo_only":
+		go asyncBLEPhotoOnly()
+	default:
+		log.Printf("Unknown async_action: %s", action)
+	}
+}
+
+func asyncBLEPhotoRecognize() {
+	log.Printf("Async: BLE photo + Coral recognize started")
+
+	// 1. Take photo via BLE
+	photoClient := &http.Client{Timeout: 25 * time.Second}
+	photoResp, err := photoClient.Post("http://127.0.0.1:8091/photo", "", nil)
+	if err != nil {
+		log.Printf("Async: BLE photo error: %v", err)
+		queuePendingResponse("Не удалось сделать фото.")
+		return
+	}
+	defer photoResp.Body.Close()
+	photoData, _ := io.ReadAll(photoResp.Body)
+
+	if photoResp.StatusCode != 200 || len(photoData) < 100 {
+		log.Printf("Async: BLE photo failed: status=%d size=%d", photoResp.StatusCode, len(photoData))
+		queuePendingResponse("Фото не получилось.")
+		return
+	}
+	log.Printf("Async: BLE photo received: %d bytes", len(photoData))
+
+	// 2. Send to Coral Vision for detection
+	coralReq, _ := http.NewRequest("POST",
+		"http://127.0.0.1:8090/detect?lang=ru&threshold=0.3",
+		bytes.NewReader(photoData))
+	coralReq.Header.Set("Content-Type", "image/jpeg")
+	coralClient := &http.Client{Timeout: 15 * time.Second}
+	coralResp, err := coralClient.Do(coralReq)
+	if err != nil {
+		log.Printf("Async: Coral detect error: %v", err)
+		queuePendingResponse("Не удалось распознать.")
+		return
+	}
+	defer coralResp.Body.Close()
+	coralBody, _ := io.ReadAll(coralResp.Body)
+	log.Printf("Async: Coral result: %s", string(coralBody))
+
+	// 3. Format result
+	var result struct {
+		Objects []struct {
+			Label string  `json:"label"`
+			Score float64 `json:"score"`
+		} `json:"objects"`
+	}
+	if err := json.Unmarshal(coralBody, &result); err != nil {
+		queuePendingResponse("Ошибка распознавания.")
+		return
+	}
+
+	seen := map[string]bool{}
+	var labels []string
+	for _, obj := range result.Objects {
+		if obj.Score > 0.4 && !seen[obj.Label] {
+			seen[obj.Label] = true
+			labels = append(labels, obj.Label)
+		}
+	}
+
+	var text string
+	switch len(labels) {
+	case 0:
+		text = "Не вижу ничего знакомого."
+	case 1:
+		text = "Я вижу " + labels[0] + "!"
+	default:
+		text = "Я вижу: " + strings.Join(labels[:len(labels)-1], ", ") + " и " + labels[len(labels)-1] + "!"
+	}
+	queuePendingResponse(text)
+}
+
+func asyncBLEPhotoOnly() {
+	log.Printf("Async: BLE photo only")
+	photoClient := &http.Client{Timeout: 25 * time.Second}
+	resp, err := photoClient.Post("http://127.0.0.1:8091/photo", "", nil)
+	if err != nil {
+		log.Printf("Async: BLE photo error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
+	log.Printf("Async: BLE photo done (status=%d)", resp.StatusCode)
+}
+
+
 func registerEMOEndpoints() {
 	http.HandleFunc("/time", func(w http.ResponseWriter, r *http.Request) {
 		logRequest(r)
@@ -487,16 +939,50 @@ func registerEMOEndpoints() {
 		fmt.Fprint(w, resp)
 	})
 
-	// detectintent — main flow via emo-ai, living.ai in background
+
+	// detectintent — living.ai STT → n8n brain → response
 	http.HandleFunc("/emo/voice/detectintent", func(w http.ResponseWriter, r *http.Request) {
 		logRequest(r)
 		saveLastCreds(r)
-		drainPendingTTS(r.Header.Get("Secret"), r.Header.Get("Authorization"))
 
-		if r.Method != "POST" || conf.ChatGptSpeakServer == "" {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+		if r.Method != "POST" {
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, makeApiRequest(r))
+			return
+		}
+
+		// Check for pending async response first
+		if pendingText := popPendingResponse(); pendingText != "" {
+			log.Printf("Pending response found: %s", pendingText)
+			// Still send audio to living.ai to get a fresh response template
+			audioBody, _ := io.ReadAll(r.Body)
+			freshBody, err := sendToLivingAISync(r, audioBody)
+			if err != nil {
+				log.Printf("living.ai error for pending: %v", err)
+			}
+			secret := r.Header.Get("Secret")
+			auth := r.Header.Get("Authorization")
+			// Get TTS for pending text
+			ttsURL := getLivingAITTSURL(pendingText, secret, auth)
+			if ttsURL == "" {
+				ttsURL = getLocalTTSURL(pendingText)
+			}
+			// Patch fresh living.ai response with our pending text
+			var responseBody []byte
+			if freshBody != nil {
+				responseBody = patchLivingAIResponse(freshBody, pendingText, ttsURL)
+			}
+			if responseBody == nil {
+				pLang := r.URL.Query().Get("languagecode")
+				if pLang == "" { pLang = "ru" }
+				pIdx := r.URL.Query().Get("index")
+				responseBody = buildSpeakJSON(pendingText, ttsURL, pLang, pIdx, nil)
+			}
+			log.Printf("FINAL pending to EMO: %s", string(responseBody))
+			w.WriteHeader(http.StatusOK)
+			w.Write(responseBody)
 			return
 		}
 
@@ -508,55 +994,102 @@ func registerEMOEndpoints() {
 			lang = "ru"
 		}
 		idx := r.URL.Query().Get("index")
+		secret := r.Header.Get("Secret")
+		auth := r.Header.Get("Authorization")
 
-		// Background: send to living.ai for data collection
-		sendToLivingAIBackground(r, audioBody)
-
-		// Main: call emo-ai /process (Whisper → triggers → GPT → TTS)
-		processReq, err := http.NewRequest("POST",
-			conf.ChatGptSpeakServer+"/process",
-			bytes.NewReader(audioBody))
+		// 1. Send audio to living.ai for STT (synchronous)
+		livingBody, err := sendToLivingAISync(r, audioBody)
 		if err != nil {
-			log.Printf("process request build error: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
+			log.Printf("living.ai STT error: %v", err)
+			// Fallback: return empty response
+			w.WriteHeader(http.StatusOK)
+			w.Write(buildActionJSON("out_of_scope", "", lang, idx))
 			return
 		}
-		processReq.Header.Set("Content-Type", "application/octet-stream")
-		processReq.Header.Set("X-Language", lang)
-		processReq.Header.Set("X-Index", idx)
-
-		processStart := time.Now()
-		processClient := &http.Client{Timeout: 60 * time.Second}
-		processResp, err := processClient.Do(processReq)
-		if err != nil {
-			log.Printf("emo-ai /process error: %v", err)
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer processResp.Body.Close()
-		responseBody, _ := io.ReadAll(processResp.Body)
-
-		log.Printf("emo-ai /process response: %s", string(responseBody))
-
-		// Try to replace TTS URL with living.ai EMO voice
-		processDuration := time.Since(processStart)
-		if processDuration < 3*time.Second {
-			// Fast response (cache hit) — we have time to replace TTS inline
-			responseBody = inlineEmoVoice(responseBody, r.Header.Get("Secret"), r.Header.Get("Authorization"))
-		} else {
-			// Slow response (GPT) — background cache for next time
-			backgroundEmoVoice(responseBody, r.Header.Get("Secret"), r.Header.Get("Authorization"))
-		}
-		// Also process training phrases if any queued
-		go processTrainPhrase(r.Header.Get("Secret"), r.Header.Get("Authorization"))
+		log.Printf("living.ai STT: %s", string(livingBody))
+		saveLastLivingBody(livingBody)
 
 		if conf.EnableDatabaseAndAPI {
-			saveRequest(r.URL.RequestURI(), "", string(responseBody))
+			saveRequest("LIVINGAI:"+r.URL.RequestURI(), "", string(livingBody))
 		}
 
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		// 2. Extract queryText from living.ai response
+		queryText := extractQueryText(livingBody)
+		if queryText == "" || queryText == "I cannot understand" {
+			log.Printf("living.ai: no useful text (%q), returning their response as-is", queryText)
+			w.WriteHeader(http.StatusOK)
+			w.Write(livingBody)
+			return
+		}
+		log.Printf("STT text: %q", queryText)
+
+		// 3. Send text to n8n (the brain)
+		n8nStart := time.Now()
+		n8nResult, err := queryN8N(queryText)
+		if err != nil {
+			log.Printf("n8n error: %v, falling back to living.ai response", err)
+			w.WriteHeader(http.StatusOK)
+			w.Write(livingBody)
+			return
+		}
+
+		// 4. Build response based on n8n result
+		if n8nResult.Action != "" {
+			log.Printf("n8n action: %s (query: %s)", n8nResult.Action, queryText)
+			// Call emo-ai to build proper action response (it has full action mapping)
+			actionResp := callEmoAIBuildAction(n8nResult.Action, queryText, lang, idx)
+			if actionResp != nil {
+				log.Printf("FINAL action response to EMO: %s", string(actionResp))
+				w.WriteHeader(http.StatusOK)
+				w.Write(actionResp)
+				return
+			}
+			// Fallback: use local builder
+			w.WriteHeader(http.StatusOK)
+			w.Write(buildActionJSON(n8nResult.Action, queryText, lang, idx))
+			return
+		}
+
+		if n8nResult.Text != "" {
+			n8nDuration := time.Since(n8nStart)
+			log.Printf("n8n text: %s (query: %s, took: %v)", n8nResult.Text, queryText, n8nDuration)
+			// Check for async action — kick off background task
+			if n8nResult.AsyncAction != "" {
+				log.Printf("n8n async_action: %s", n8nResult.AsyncAction)
+				runAsyncAction(n8nResult.AsyncAction)
+			}
+
+			if n8nDuration >= 2*time.Second {
+				// GPT path — slow response. Use living.ai original response
+				// (they already did ChatGPT + TTS, no timeout risk)
+				log.Printf("GPT path (took %v) — using living.ai response", n8nDuration)
+				w.WriteHeader(http.StatusOK)
+				w.Write(livingBody)
+				return
+			}
+
+			// Trigger path — fast response. Use our text with living.ai TTS
+			ttsURL := getLivingAITTSURL(n8nResult.Text, secret, auth)
+			if ttsURL == "" {
+				ttsURL = getLocalTTSURL(n8nResult.Text)
+			}
+			if ttsURL == "" {
+				log.Printf("TTS failed for: %s", n8nResult.Text)
+			}
+			patched := patchLivingAIResponse(livingBody, n8nResult.Text, ttsURL)
+			if patched == nil {
+				patched = buildSpeakJSON(n8nResult.Text, ttsURL, lang, idx, n8nResult.Animation)
+			}
+			log.Printf("FINAL speak response to EMO: %s", string(patched))
+			w.WriteHeader(http.StatusOK)
+			w.Write(patched)
+			return
+		}
+
+		// 5. n8n returned nothing useful — use living.ai response as fallback
+		log.Printf("n8n: no action/text, using living.ai response")
 		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
+		w.Write(livingBody)
 	})
 
 	http.HandleFunc("/emo/notice/latest", func(w http.ResponseWriter, r *http.Request) {
@@ -684,10 +1217,38 @@ func registerEMOEndpoints() {
 				return
 			}
 		}
-		// Fallback to living.ai
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, makeApiTtsRequest(r))
+		// Proxy to living.ai - use Host header to determine correct server
+		host := r.Host
+		if host == "" || !strings.Contains(host, "living.ai") {
+			host = conf.Livingio_TTS_Server
+		}
+		ttsURL := "http://" + host + r.URL.RequestURI()
+		log.Printf("TTS proxy: %s", ttsURL)
+		req, _ := http.NewRequest("GET", ttsURL, nil)
+		if v := r.Header.Get("Authorization"); v != "" {
+			req.Header.Set("Authorization", v)
+		}
+		if v := r.Header.Get("Secret"); v != "" {
+			req.Header.Set("Secret", v)
+		}
+		req.Header.Del("User-Agent")
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("TTS proxy error: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "audio/mpeg"
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

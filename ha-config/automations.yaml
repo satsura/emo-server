@@ -1,0 +1,281 @@
+- actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.sonoff_1001006c54
+  - continue_on_timeout: true
+    timeout:
+      hours: 2
+    wait_for_trigger:
+    - entity_id:
+      - binary_sensor.0x54ef4410006dc20e_occupancy
+      - binary_sensor.0x54ef4410006db7a2_occupancy
+      for:
+        minutes: 10
+      platform: state
+      to: 'off'
+  - action: switch.turn_off
+    target:
+      entity_id: switch.sonoff_1001006c54
+  alias: Горячая вода по движению
+  description: Включить циркуляционный насос при движении в ванной или кухне. Выключить
+    через 10 мин без движения.
+  id: hot_water_motion
+  mode: restart
+  triggers:
+  - entity_id:
+    - binary_sensor.0x54ef4410006dc20e_occupancy
+    - binary_sensor.0x54ef4410006db7a2_occupancy
+    platform: state
+    to: 'on'
+- actions:
+  - action: localtuya.reload
+    data: {}
+  - delay:
+      seconds: 5
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 12
+      value: f3
+  - delay:
+      seconds: 30
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 12
+      value: f3
+  - continue_on_timeout: true
+    timeout:
+      hours: 2
+    wait_for_trigger:
+    - entity_id: binary_sensor.0x54ef4410006dc20e_occupancy
+      for:
+        minutes: 10
+      platform: state
+      to: 'off'
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_off
+  alias: Вентиляция — Ванная (скорость 2)
+  id: ventilation_vannaya
+  mode: restart
+  triggers:
+  - entity_id: binary_sensor.0x54ef4410006dc20e_occupancy
+    platform: state
+    to: 'on'
+- actions:
+  - action: localtuya.reload
+    data: {}
+  - delay:
+      seconds: 5
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 12
+      value: f4
+  - delay:
+      seconds: 30
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 12
+      value: f4
+  - continue_on_timeout: true
+    timeout:
+      hours: 2
+    wait_for_trigger:
+    - entity_id: binary_sensor.0x54ef4410006dcb05_occupancy
+      for:
+        minutes: 10
+      platform: state
+      to: 'off'
+  - action: localtuya.set_dp
+    data:
+      device_id: bf70e18a13f7388b7fhqrn
+      dp: 2
+      value: dp_mode_off
+  alias: Вентиляция — Туалет (скорость 3)
+  id: ventilation_tualet
+  mode: restart
+  triggers:
+  - entity_id: binary_sensor.0x54ef4410006dcb05_occupancy
+    platform: state
+    to: 'on'
+- actions:
+  - action: localtuya.reload
+    data: {}
+  - delay:
+      seconds: 5
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 12
+      value: f2
+  - delay:
+      seconds: 30
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 12
+      value: f2
+  - continue_on_timeout: true
+    timeout:
+      hours: 2
+    wait_for_trigger:
+    - entity_id: binary_sensor.0x54ef4410006db7a2_occupancy
+      for:
+        minutes: 10
+      platform: state
+      to: 'off'
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 2
+      value: dp_mode_off
+  alias: Вентиляция Комнаты — Кухня (скорость 1)
+  id: ventilation_komnaty_kitchen
+  mode: restart
+  triggers:
+  - entity_id: binary_sensor.0x54ef4410006db7a2_occupancy
+    platform: state
+    to: 'on'
+- actions:
+  - action: localtuya.reload
+    data: {}
+  - delay:
+      seconds: 3
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 12
+      value: f2
+  - delay:
+      minutes: 15
+  - action: localtuya.set_dp
+    data:
+      device_id: bf7258170edf574330p9bf
+      dp: 2
+      value: dp_mode_off
+  alias: Вентиляция Комнаты — периодическая
+  id: ventilation_komnaty_periodic
+  mode: single
+  triggers:
+  - hours: /1
+    minutes: '0'
+    platform: time_pattern
+- actions:
+  - action: localtuya.reload
+    data: {}
+  - delay:
+      seconds: 3
+  - action: localtuya.set_dp
+    data:
+      device_id: bf6de0a21be4688a4a5cep
+      dp: 1
+      value: true
+  - action: localtuya.set_dp
+    data:
+      device_id: bf6de0a21be4688a4a5cep
+      dp: 2
+      value: dp_mode_on
+  - action: localtuya.set_dp
+    data:
+      device_id: bf6de0a21be4688a4a5cep
+      dp: 12
+      value: f2
+  - delay:
+      minutes: 25
+  - action: localtuya.set_dp
+    data:
+      device_id: bf6de0a21be4688a4a5cep
+      dp: 2
+      value: dp_mode_off
+  alias: Вентиляция Котельная — периодическая
+  id: ventilation_kotelnaya_periodic
+  mode: single
+  triggers:
+  - hours: /1
+    minutes: '0'
+    platform: time_pattern
+- actions:
+  - action: localtuya.reload
+    data: {}
+  alias: LocalTuya keepalive
+  description: Reload LocalTuya every 5 minutes to keep connections alive
+  id: localtuya_keepalive
+  mode: single
+  triggers:
+  - minutes: /5
+    platform: time_pattern

@@ -3,6 +3,7 @@ import json
 import struct
 import uuid
 import hashlib
+import base64
 import threading
 import time
 import subprocess
@@ -759,6 +760,76 @@ class Handler(BaseHTTPRequestHandler):
                 pending_action = action
             print(f"Queued action: {action}")
             self._json_response({"status": "ok", "action": action})
+
+        elif self.path == "/build_action":
+            body, err = self._parse_json(length)
+            if err:
+                self.send_error(400, err); return
+            action = body.get("action", "").strip()
+            query_text = body.get("query_text", "")
+            lang = body.get("lang", "ru")
+            idx = body.get("idx", "0")
+            if action and action in SUPPORTED_ACTIONS:
+                result = build_action_response(action, query_text, lang, idx)
+                self._json_response(result)
+            else:
+                self.send_error(400, f"Unknown action: {action}")
+
+        elif self.path == "/telegram":
+            body, err = self._parse_json(length)
+            if err:
+                self.send_error(400, err); return
+            photo_b64 = body.get("photo_base64", "")
+            caption = body.get("caption", "")
+            chat_id = body.get("chat_id", "405695817")
+            token = body.get("token", "8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc")
+            if not photo_b64 or not caption:
+                self.send_error(400, "photo_base64 and caption required"); return
+            photo_data = base64.b64decode(photo_b64)
+            try:
+                boundary = "----tgbnd" + str(int(time.time()))
+                crlf = "\r\n"
+                parts = []
+                parts.append("--" + boundary)
+                parts.append('Content-Disposition: form-data; name="chat_id"')
+                parts.append("")
+                parts.append(chat_id)
+                parts.append("--" + boundary)
+                parts.append('Content-Disposition: form-data; name="caption"')
+                parts.append("")
+                parts.append(caption)
+                parts.append("--" + boundary)
+                parts.append('Content-Disposition: form-data; name="photo"; filename="snap.jpg"')
+                parts.append("Content-Type: image/jpeg")
+                parts.append("")
+                preamble = crlf.join(parts) + crlf
+                epilogue = crlf + "--" + boundary + "--" + crlf
+                payload = preamble.encode("utf-8") + photo_data + epilogue.encode("utf-8")
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{token}/sendPhoto",
+                    data=payload,
+                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    resp.read()
+                self._json_response({"status": "ok"})
+            except Exception as e:
+                print(f"Telegram error: {e}")
+                self._json_response({"status": "error", "error": str(e)})
+
+        elif self.path == "/tts":
+            body, err = self._parse_json(length)
+            if err:
+                self.send_error(400, err); return
+            text = body.get("text", "").strip()
+            if not text:
+                self.send_error(400, "text is required"); return
+            audio_id = hashlib.md5(f"tts:{text}:{time.time()}".encode()).hexdigest()[:12]
+            voice_params = body.get("voice")
+            if tts_sync(text, audio_id, voice_params):
+                self._json_response({"status": "ok", "url": make_audio_url(audio_id), "audio_id": audio_id})
+            else:
+                self._json_response({"status": "error", "url": ""})
 
         else:
             self.send_error(404)
