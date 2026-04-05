@@ -1,4 +1,16 @@
 services:
+  coral-vision:
+    container_name: coral-vision
+    environment:
+    - PORT=8090
+    image: ghcr.io/satsura/coral-vision:latest
+    network_mode: host
+    ports:
+    - 8090:8090
+    privileged: true
+    restart: unless-stopped
+    volumes:
+    - /dev/bus/usb:/dev/bus/usb
   hik-watcher:
     build: ../hikvision
     container_name: hik-watcher
@@ -10,6 +22,8 @@ services:
     - COOLDOWN=30
     - TG_TOKEN=8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc
     - TG_CHAT_ID=405695817
+    - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
+    - COOLDOWN_VMD=300
     network_mode: host
     restart: unless-stopped
   homeassistant:

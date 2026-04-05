@@ -1,4 +1,4 @@
-"""Hikvision NVR watcher — smart events (human detection) → snapshot → Telegram."""
+"""Hikvision NVR watcher — hybrid: AcuSense smart events + Coral for non-smart cameras."""
 import requests, subprocess, time, json, os, threading, base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from requests.auth import HTTPDigestAuth
@@ -8,19 +8,24 @@ NVR_IP = os.environ.get("NVR_IP", "192.168.1.180")
 USER = os.environ.get("HIK_USER", "admin")
 PASS = os.environ.get("HIK_PASS", "911HPExp")
 PORT = int(os.environ.get("PORT", "8092"))
+CORAL_URL = os.environ.get("CORAL_URL", "http://127.0.0.1:8090/detect?lang=ru&threshold=0.3")
 TG_TOKEN = os.environ.get("TG_TOKEN", "8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc")
 TG_CHAT = os.environ.get("TG_CHAT_ID", os.environ.get("TG_CHAT", "405695817"))
-COOLDOWN = int(os.environ.get("COOLDOWN", "30"))
+COOLDOWN_SMART = int(os.environ.get("COOLDOWN_SMART", "30"))
+COOLDOWN_VMD = int(os.environ.get("COOLDOWN_VMD", "120"))
 
 CAMERAS = {
     "1": "Двор", "2": "Дорога", "3": "Стройка", "4": "Детская площадка",
     "5": "Бассейн", "6": "Калитка", "7": "Веранда 2", "8": "Веранда 1",
 }
 
-# Only react to smart events (human/face), ignore VMD
+# AcuSense cameras (G2) — can detect humans themselves
+ACUSENSE_CHANNELS = {"1", "3"}
+
 SMART_EVENTS = {"fielddetection", "linedetection", "facedetection"}
 
-stats = {"events": 0, "smart_events": 0, "vmd_skipped": 0, "snapshots": 0, "alerts": 0, "errors": 0}
+stats = {"events": 0, "smart": 0, "vmd_coral": 0, "vmd_skipped": 0,
+         "coral_person": 0, "coral_nothing": 0, "snapshots": 0, "alerts": 0, "errors": 0}
 last_alert = {}
 
 
@@ -62,23 +67,62 @@ def send_telegram(photo_bytes, caption):
         stats["errors"] += 1
 
 
-def process_event(channel_id, event_type):
+def coral_has_person(jpg):
+    """Send image to Coral TPU, return True if person detected."""
+    try:
+        r = requests.post(CORAL_URL, data=jpg,
+                         headers={"Content-Type": "application/octet-stream"}, timeout=10)
+        objects = r.json().get("objects", [])
+        persons = [o for o in objects if o.get("score", 0) > 0.4
+                   and (o.get("label_en") == "person" or o.get("label") == "человек")]
+        if persons:
+            stats["coral_person"] += 1
+            return True
+        stats["coral_nothing"] += 1
+        return False
+    except Exception as e:
+        print(f"  Coral error: {e}")
+        stats["errors"] += 1
+        return False
+
+
+def process_smart_event(channel_id, event_type):
+    """AcuSense camera detected human — snapshot + Telegram directly."""
     camera = CAMERAS.get(channel_id, f"Камера {channel_id}")
     now = time.time()
-    if channel_id in last_alert and (now - last_alert[channel_id]) < COOLDOWN:
+    if channel_id in last_alert and (now - last_alert[channel_id]) < COOLDOWN_SMART:
         return
     last_alert[channel_id] = now
 
     jpg = get_snapshot(channel_id)
     if not jpg:
-        print(f"  [{camera}] snapshot failed")
         return
-    print(f"  [{camera}] snapshot {len(jpg)} bytes")
 
     ts = time.strftime("%H:%M:%S")
-    event_label = {"fielddetection": "Вторжение", "linedetection": "Пересечение линии", "facedetection": "Лицо"}.get(event_type, event_type)
-    caption = f"🚨 {camera} [{ts}]\n{event_label}"
+    caption = f"🚨 {camera} [{ts}]\nОбнаружен человек (AcuSense)"
     send_telegram(jpg, caption)
+
+
+def process_vmd_event(channel_id):
+    """Non-smart camera VMD — snapshot + Coral check + Telegram if person."""
+    camera = CAMERAS.get(channel_id, f"Камера {channel_id}")
+    now = time.time()
+    if channel_id in last_alert and (now - last_alert[channel_id]) < COOLDOWN_VMD:
+        stats["vmd_skipped"] += 1
+        return
+
+    jpg = get_snapshot(channel_id)
+    if not jpg:
+        return
+    print(f"  [{camera}] snapshot {len(jpg)} bytes → Coral")
+
+    if coral_has_person(jpg):
+        last_alert[channel_id] = now
+        ts = time.strftime("%H:%M:%S")
+        caption = f"🚨 {camera} [{ts}]\nОбнаружен человек (Coral)"
+        send_telegram(jpg, caption)
+    else:
+        print(f"  [{camera}] Coral: no person")
 
 
 def alert_stream_listener():
@@ -111,16 +155,22 @@ def alert_stream_listener():
 
                         if event_state != "active":
                             continue
-
                         stats["events"] += 1
+                        camera = CAMERAS.get(channel_id, f"ch{channel_id}")
 
                         if event_type in SMART_EVENTS:
-                            camera = CAMERAS.get(channel_id, f"Камера {channel_id}")
-                            stats["smart_events"] += 1
-                            print(f"[{camera}] {event_type} (HUMAN)")
-                            threading.Thread(target=process_event, args=(channel_id, event_type), daemon=True).start()
-                        else:
-                            stats["vmd_skipped"] += 1
+                            # AcuSense smart event — human detected by camera
+                            stats["smart"] += 1
+                            print(f"[{camera}] {event_type} (SMART)")
+                            threading.Thread(target=process_smart_event,
+                                           args=(channel_id, event_type), daemon=True).start()
+                        elif event_type == "VMD" and channel_id not in ACUSENSE_CHANNELS:
+                            # VMD from non-smart camera — check with Coral
+                            stats["vmd_coral"] += 1
+                            print(f"[{camera}] VMD → Coral")
+                            threading.Thread(target=process_vmd_event,
+                                           args=(channel_id,), daemon=True).start()
+                        # VMD from AcuSense channels ignored (smart events handle them)
 
                     except ET.ParseError:
                         pass
@@ -135,8 +185,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             body = json.dumps({"status": "ok", "nvr": NVR_IP, "cameras": CAMERAS,
-                              "stats": stats, "cooldown": COOLDOWN,
-                              "mode": "smart_events_only"}).encode()
+                              "stats": stats, "acusense_channels": list(ACUSENSE_CHANNELS),
+                              "cooldown_smart": COOLDOWN_SMART, "cooldown_vmd": COOLDOWN_VMD}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -163,8 +213,8 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Hik-watcher :{PORT}, NVR {NVR_IP}, {len(CAMERAS)} cameras")
-    print(f"Mode: SMART events only (fielddetection, linedetection, facedetection)")
-    print(f"VMD ignored — only human/face alerts → Telegram")
-    print(f"Telegram: chat {TG_CHAT}, cooldown: {COOLDOWN}s")
+    print(f"AcuSense channels: {ACUSENSE_CHANNELS} (smart → Telegram directly)")
+    print(f"Other channels: VMD → Coral → if person → Telegram")
+    print(f"Cooldown: smart={COOLDOWN_SMART}s, VMD={COOLDOWN_VMD}s")
     threading.Thread(target=alert_stream_listener, daemon=True).start()
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
