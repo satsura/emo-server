@@ -4,6 +4,8 @@ Stage 2: n8n → Coral TPU (confirmation)
 → Telegram if confirmed
 """
 import requests, subprocess, time, json, os, threading, base64
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from requests.auth import HTTPDigestAuth
 import xml.etree.ElementTree as ET
@@ -15,6 +17,10 @@ PORT = int(os.environ.get("PORT", "8092"))
 N8N_WEBHOOK = os.environ.get("N8N_WEBHOOK", "")
 TG_TOKEN = os.environ.get("TG_TOKEN", "8532330447:AAHyf13dH1ySXqrLbLftrQNtgdS3XTjkYYc")
 TG_CHAT = os.environ.get("TG_CHAT_ID", os.environ.get("TG_CHAT", "405695817"))
+NAS_URL = os.environ.get("NAS_URL", "https://192.168.1.53:5001")
+NAS_USER = os.environ.get("NAS_USER", "valera")
+NAS_PASS = os.environ.get("NAS_PASS", "vujwA0-pubhak-kybqus")
+NAS_FOLDER = os.environ.get("NAS_FOLDER", "/home/cameras")
 COOLDOWN = int(os.environ.get("COOLDOWN", "10"))
 YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.3"))
 
@@ -33,7 +39,7 @@ INTERESTING_CLASSES = {
 stats = {"events": 0, "snapshots": 0,
          "yolo_detected": 0, "yolo_nothing": 0,
          "n8n_sent": 0, "n8n_confirmed": 0,
-         "alerts": 0, "errors": 0}
+         "alerts": 0, "nas_saved": 0, "errors": 0}
 last_event = {}
 
 # ── YOLO ────────────────────────────────────────────────────────────────────
@@ -103,6 +109,57 @@ def get_snapshot(channel_id):
 
 # ── Telegram ────────────────────────────────────────────────────────────────
 
+# ── NAS ──────────────────────────────────────────────────────────────────────
+
+nas_sid = None
+nas_sid_time = 0
+
+def nas_login():
+    global nas_sid, nas_sid_time
+    if nas_sid and (time.time() - nas_sid_time) < 3600:
+        return nas_sid
+    try:
+        r = requests.get(f"{NAS_URL}/webapi/entry.cgi",
+            params={"api": "SYNO.API.Auth", "version": "6", "method": "login",
+                    "account": NAS_USER, "passwd": NAS_PASS,
+                    "format": "cookie", "session": "FileStation"},
+            verify=False, timeout=10)
+        data = r.json()
+        if data.get("success"):
+            nas_sid = r.cookies
+            nas_sid_time = time.time()
+            return nas_sid
+    except Exception as e:
+        print(f"  NAS login error: {e}")
+    return None
+
+
+def save_to_nas(camera, jpg_data):
+    """Save snapshot to Synology NAS."""
+    sid = nas_login()
+    if not sid:
+        return False
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{ts}.jpg"
+    folder = f"{NAS_FOLDER}/{camera}"
+    try:
+        r = requests.post(f"{NAS_URL}/webapi/entry.cgi",
+            data={"api": "SYNO.FileStation.Upload", "version": "2", "method": "upload",
+                  "path": folder, "create_parents": "true", "overwrite": "true"},
+            files={"file": (filename, jpg_data, "image/jpeg")},
+            cookies=sid,
+            verify=False, timeout=15)
+        if r.json().get("success"):
+            stats["nas_saved"] += 1
+            print(f"  NAS: {folder}/{filename}")
+            return True
+        else:
+            print(f"  NAS upload error: {r.json()}")
+    except Exception as e:
+        print(f"  NAS error: {e}")
+    return False
+
+
 def send_telegram(photo_bytes, caption):
     try:
         r = requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto",
@@ -130,6 +187,9 @@ def process_event(channel_id, event_type):
     if not jpg:
         return
 
+    # Save ALL snapshots to NAS
+    threading.Thread(target=save_to_nas, args=(camera, jpg), daemon=True).start()
+
     # Stage 1: YOLO
     t0 = time.time()
     detections = yolo_detect(jpg)
@@ -143,7 +203,13 @@ def process_event(channel_id, event_type):
     stats["yolo_detected"] += 1
     print(f"  [{camera}] YOLO ({yolo_ms}ms): {labels}")
 
-    # Stage 2: n8n → Coral
+    # Only send to Coral/Telegram if person detected by YOLO
+    has_person = "человек" in labels
+    if not has_person:
+        print(f"  [{camera}] No person, skip Telegram")
+        return
+
+    # Stage 2: n8n → Coral (only for persons)
     if N8N_WEBHOOK:
         try:
             b64 = base64.b64encode(jpg).decode()
@@ -261,6 +327,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Hik-watcher :{PORT}, NVR {NVR_IP}, {len(CAMERAS)} cameras")
+    print(f"NAS: {NAS_URL} → {NAS_FOLDER}")
     print(f"Pipeline: event → YOLO (local) → n8n → Coral (confirm) → Telegram")
     print(f"Cooldown: {COOLDOWN}s per camera")
     print("Loading YOLOv8n...")
