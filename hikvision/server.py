@@ -168,10 +168,10 @@ def save_to_yadisk(camera, jpg_data):
         return False
     ts = time.strftime("%Y-%m-%d_%H-%M-%S")
     safe_cam = camera.replace(" ", "_")
-    path = f"{YADISK_FOLDER}/{safe_cam}/{ts}.jpg"
+    path = f"{YADISK_FOLDER}/{safe_cam}_{ts}.jpg"
     headers = {"Authorization": f"OAuth {YADISK_TOKEN}"}
     try:
-        requests.put(f"https://cloud-api.yandex.net/v1/disk/resources?path={YADISK_FOLDER}/{safe_cam}",
+        requests.put(f"https://cloud-api.yandex.net/v1/disk/resources?path={YADISK_FOLDER}",
                     headers=headers, timeout=5)
         r = requests.get(f"https://cloud-api.yandex.net/v1/disk/resources/upload?path={path}&overwrite=true",
                         headers=headers, timeout=10)
