@@ -257,21 +257,15 @@ def process_event(channel_id, event_type):
             status = result.get("status", "")
             if status in ("sent", "send"):
                 stats["n8n_confirmed"] += 1
-                caption = result.get("caption", f"{camera}: {labels}")
-                print(f"  [{camera}] Coral confirmed → Telegram")
-                send_telegram(jpg, caption)
+                print(f"  [{camera}] Coral confirmed")
             else:
                 print(f"  [{camera}] n8n: {status}")
         except Exception as e:
             print(f"  [{camera}] n8n error: {e}")
 
     else:
-        # No n8n — send directly
-        ts = time.strftime("%H:%M:%S")
-        has_person = "человек" in labels
-        emoji = "🚨" if has_person else "🐾" if any(l in labels for l in ["кошка","собака","птица"]) else "🚗"
-        caption = f"{emoji} {camera} [{ts}]\n{', '.join(labels)}"
-        send_telegram(jpg, caption)
+        pass
+
 
 
 # ── Alert stream ───────────────────────────────────────────────────────────
