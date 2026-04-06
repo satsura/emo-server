@@ -25,6 +25,7 @@ services:
     - CORAL_URL=http://127.0.0.1:8090/detect?lang=ru&threshold=0.3
     - N8N_WEBHOOK=http://127.0.0.1:5678/webhook/cameras_v2/webhook/cam
     - COOLDOWN=10
+    - YADISK_TOKEN=y0__xD49I0nGJT8PyDUtYH_Fgt84Cvfr7WrvwHVit1IaCyHSWgr
     network_mode: host
     restart: unless-stopped
   homeassistant:

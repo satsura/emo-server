@@ -21,6 +21,8 @@ NAS_URL = os.environ.get("NAS_URL", "https://192.168.1.53:5001")
 NAS_USER = os.environ.get("NAS_USER", "valera")
 NAS_PASS = os.environ.get("NAS_PASS", "vujwA0-pubhak-kybqus")
 NAS_FOLDER = os.environ.get("NAS_FOLDER", "/home/cameras")
+YADISK_TOKEN = os.environ.get("YADISK_TOKEN", "")
+YADISK_FOLDER = os.environ.get("YADISK_FOLDER", "cameras")
 COOLDOWN = int(os.environ.get("COOLDOWN", "10"))
 YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.3"))
 
@@ -39,7 +41,7 @@ INTERESTING_CLASSES = {
 stats = {"events": 0, "snapshots": 0,
          "yolo_detected": 0, "yolo_nothing": 0,
          "n8n_sent": 0, "n8n_confirmed": 0,
-         "alerts": 0, "nas_saved": 0, "errors": 0}
+         "alerts": 0, "nas_saved": 0, "yadisk_saved": 0, "errors": 0}
 last_event = {}
 
 # ── YOLO ────────────────────────────────────────────────────────────────────
@@ -160,6 +162,35 @@ def save_to_nas(camera, jpg_data):
     return False
 
 
+def save_to_yadisk(camera, jpg_data):
+    """Save snapshot to Yandex Disk."""
+    if not YADISK_TOKEN:
+        return False
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    safe_cam = camera.replace(" ", "_")
+    path = f"{YADISK_FOLDER}/{safe_cam}/{ts}.jpg"
+    headers = {"Authorization": f"OAuth {YADISK_TOKEN}"}
+    try:
+        requests.put(f"https://cloud-api.yandex.net/v1/disk/resources?path={YADISK_FOLDER}/{safe_cam}",
+                    headers=headers, timeout=5)
+        r = requests.get(f"https://cloud-api.yandex.net/v1/disk/resources/upload?path={path}&overwrite=true",
+                        headers=headers, timeout=10)
+        upload_url = r.json().get("href")
+        if not upload_url:
+            print(f"  YaDisk: no upload URL")
+            return False
+        r2 = requests.put(upload_url, data=jpg_data,
+                         headers={"Content-Type": "image/jpeg"}, timeout=15)
+        if r2.status_code in (201, 202):
+            stats["yadisk_saved"] += 1
+            print(f"  YaDisk: {path}")
+            return True
+        print(f"  YaDisk error: {r2.status_code}")
+    except Exception as e:
+        print(f"  YaDisk error: {e}")
+    return False
+
+
 def send_telegram(photo_bytes, caption):
     try:
         r = requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto",
@@ -206,7 +237,7 @@ def process_event(channel_id, event_type):
     # Only send to Coral/Telegram if person detected by YOLO
     has_person = "человек" in labels
     if not has_person:
-        print(f"  [{camera}] No person, skip Telegram")
+        
         return
 
     # Stage 2: n8n → Coral (only for persons)
@@ -233,10 +264,7 @@ def process_event(channel_id, event_type):
                 print(f"  [{camera}] n8n: {status}")
         except Exception as e:
             print(f"  [{camera}] n8n error: {e}")
-            # Fallback: send directly
-            ts = time.strftime("%H:%M:%S")
-            caption = f"🚨 {camera} [{ts}]\n{', '.join(labels)}"
-            send_telegram(jpg, caption)
+
     else:
         # No n8n — send directly
         ts = time.strftime("%H:%M:%S")
