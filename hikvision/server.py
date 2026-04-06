@@ -325,7 +325,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"status": "ok", "nvr": NVR_IP, "cameras": CAMERAS,
                         "stats": stats, "cooldown": COOLDOWN,
                         "yolo": yolo_model is not None,
-                        "n8n": bool(N8N_WEBHOOK)})
+                        "n8n": bool(N8N_WEBHOOK), "yadisk": bool(YADISK_TOKEN)})
         elif self.path.startswith("/snapshot/"):
             ch = self.path.split("/snapshot/")[1]
             jpg = get_snapshot(ch)
