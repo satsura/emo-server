@@ -237,8 +237,10 @@ def process_event(channel_id, event_type):
     # Only send to Coral/Telegram if person detected by YOLO
     has_person = "человек" in labels
     if not has_person:
-        
         return
+
+    # Save person to Yandex Disk
+    threading.Thread(target=save_to_yadisk, args=(camera, jpg), daemon=True).start()
 
     # Stage 2: n8n → Coral (only for persons)
     if N8N_WEBHOOK:
