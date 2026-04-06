@@ -141,7 +141,7 @@ def save_to_nas(camera, jpg_data):
     sid = nas_login()
     if not sid:
         return False
-    ts = time.strftime("%Y%m%d_%H%M%S")
+    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"{ts}.jpg"
     folder = f"{NAS_FOLDER}/{camera}"
     try:
@@ -166,7 +166,7 @@ def save_to_yadisk(camera, jpg_data):
     """Save snapshot to Yandex Disk."""
     if not YADISK_TOKEN:
         return False
-    ts = time.strftime("%Y%m%d_%H%M%S")
+    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
     safe_cam = camera.replace(" ", "_")
     path = f"{YADISK_FOLDER}/{safe_cam}/{ts}.jpg"
     headers = {"Authorization": f"OAuth {YADISK_TOKEN}"}
