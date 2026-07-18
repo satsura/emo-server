@@ -30,6 +30,11 @@ services:
     restart: unless-stopped
   homeassistant:
     container_name: homeassistant
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
     dns:
     - 8.8.8.8
     - 1.1.1.1
