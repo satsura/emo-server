@@ -37,25 +37,6 @@ services:
     volumes:
     - mosquitto-data:/mosquitto/data
     - mosquitto-config:/mosquitto/config
-  n8n:
-    container_name: n8n
-    environment:
-    - N8N_PORT=5678
-    - N8N_PROTOCOL=http
-    - WEBHOOK_URL=http://192.168.1.109:5678
-    - N8N_BASIC_AUTH_ACTIVE=true
-    - N8N_BASIC_AUTH_USER=admin
-    - N8N_BASIC_AUTH_PASSWORD=emo2024
-    - N8N_SECURE_COOKIE=false
-    - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
-    - EXECUTIONS_DATA_SAVE_ON_ERROR=all
-    - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
-    image: n8nio/n8n:latest
-    network_mode: host
-    restart: unless-stopped
-    volumes:
-    - n8n-data:/home/node/.n8n
-    - /home/valera/emo-photos:/photos
   zigbee2mqtt:
     container_name: zigbee2mqtt
     devices:
@@ -73,5 +54,4 @@ volumes:
   matter-data: null
   mosquitto-config: null
   mosquitto-data: null
-  n8n-data: null
   z2m-data: null
