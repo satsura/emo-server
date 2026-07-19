@@ -20,6 +20,11 @@ services:
     - /run/dbus:/run/dbus:ro
   matter-server:
     container_name: matter-server
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
     environment:
     - MATTER_SERVER__INSTANCE_NAME=Matter
     - MATTER_SERVER__PORT=5580
@@ -30,6 +35,11 @@ services:
     - matter-data:/data
   mosquitto:
     container_name: mosquitto
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
     image: eclipse-mosquitto:2
     ports:
     - 1883:1883
@@ -39,6 +49,11 @@ services:
     - mosquitto-config:/mosquitto/config
   zigbee2mqtt:
     container_name: zigbee2mqtt
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
     devices:
     - /dev/ttyACM0:/dev/ttyACM0
     environment:
